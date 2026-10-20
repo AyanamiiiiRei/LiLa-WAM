@@ -427,7 +427,7 @@ class VLAModel(nn.Module):
                 fused = self.concat_fusion(dino_features_list)       # (B, N, fusion_out_dim)
                 cond = self.dino_adapters[0](fused)                  # (B, Q, hidden_dim)
                 tokens_list.append(cond + self.type_emb_dino_layers[0])
-            else:
+            else: # per-layer mode, 3 adapters outputs 64 * 3 =228 tokens
                 for layer_idx, feats in enumerate(dino_features_list):
                     cond = self.dino_adapters[layer_idx](feats)
                     tokens_list.append(cond + self.type_emb_dino_layers[layer_idx])
