@@ -35,8 +35,13 @@ def _register_resolvers() -> None:
     global _RESOLVERS_REGISTERED
     if _RESOLVERS_REGISTERED:
         return
-    OmegaConf.register_new_resolver("lila_root", lambda: str(lila_root()), replace=True)
-    OmegaConf.register_new_resolver("subproject", lambda: str(SUBPROJECT_ROOT), replace=True)
+    # Some OmegaConf releases deprecate register_new_resolver in favour of register_resolver,
+    # others the reverse; both behave the same for these zero-argument resolvers.
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        OmegaConf.register_new_resolver("lila_root", lambda: str(lila_root()), replace=True)
+        OmegaConf.register_new_resolver("subproject", lambda: str(SUBPROJECT_ROOT), replace=True)
     _RESOLVERS_REGISTERED = True
 
 
