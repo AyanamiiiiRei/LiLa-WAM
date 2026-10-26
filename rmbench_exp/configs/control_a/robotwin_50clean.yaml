@@ -62,7 +62,7 @@ model:
     # Multi-level feature extraction:
     #   [-1]      -> last layer only
     #   [-4, -1]  -> 4th-to-last layer + last layer (in list order)
-    feat_layers: [-8, -4]   # control_a: MUST match rmbench_exp/configs/base.yaml
+    feat_layers: [-12, -8, -4]   # must match rmbench_exp/configs/base.yaml (unchanged repo default)
 
     # Whether to keep the CLS / register tokens (concatenated with the patch
     # tokens) before the adapter

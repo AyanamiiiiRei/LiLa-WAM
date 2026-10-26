@@ -54,9 +54,9 @@ model:
   use_task_cond: true
   vision_encoder:
     checkpoint_path: ${lila_root:}/dinov3_pretrain/dinov3-vitl16-pretrain-lvd1689m
-    # !! Keep identical to your RoboTwin run and report it. Paper = blocks 17 & 21,
-    # i.e. hidden_states[-8] and [-4] for the 24-block ViT-L. Repo default is [-12, -8, -4].
-    feat_layers: [-8, -4]
+    # Same as the user's RoboTwin run (repo default): hidden_states[-12], [-8], [-4] of the
+    # 24-block ViT-L = blocks 13, 17, 21. (The paper's main setting is blocks 17 & 21 = [-8, -4].)
+    feat_layers: [-12, -8, -4]
     include_cls_register: true
     fusion_mode: concat
     concat:

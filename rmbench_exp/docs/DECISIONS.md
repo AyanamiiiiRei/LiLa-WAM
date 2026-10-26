@@ -27,8 +27,8 @@
 
 ## 模型与训练
 
-11. ⚠ **`feat_layers`**：默认 `[-8, -4]`，对应论文的第 17、21 个 block（ViT-L 共 24 个 block，`hidden_states` 长度 25）。
-    仓库默认是 `[-12, -8, -4]`。**必须与你在 RoboTwin 上的实验一致**，请确认后修改 `configs/base.yaml`（以及 `control_a` 配置）。
+11. **`feat_layers`**：`[-12, -8, -4]`（仓库默认，即第 13、17、21 个 block），与你在 RoboTwin 上的实验一致（已确认）。
+    注意论文主设置是第 17、21 个 block（`[-8, -4]`）；报告中写明使用的是仓库默认的三层。
 11b. ⚠ **前瞻解码器的条件 token**：你在主项目中给 `VLAModel` 加了 `future_cond_tokens`（`"all"` 为原行为，`"visual"` 只用视觉 token）。
     主项目的 `ModelFactory` 不传这个参数，所以默认总是 `"all"`。子项目用配置项 `model.future_feat.cond_tokens` 设置它
     （在 `lila_api.py` 中设置到构建好的模型上，不修改主项目）；`null` 表示沿用主项目默认值。必须与 RoboTwin 上的实验一致。
