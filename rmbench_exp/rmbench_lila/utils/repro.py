@@ -52,7 +52,7 @@ def git_state(path: Path) -> dict:
     return {
         "commit": _git(["rev-parse", "HEAD"], path),
         "branch": _git(["rev-parse", "--abbrev-ref", "HEAD"], path),
-        "dirty": bool(_git(["status", "--porcelain", "--", "."], path)),
+        "dirty": bool(_git(["status", "--porcelain", "--untracked-files=no", "--", "."], path)),  # tracked files only
     }
 
 
