@@ -54,6 +54,10 @@
     学习率余弦曲线（2e-4 → 5e-5）的长度与 RoboTwin 相同。RoboTwin 实测约 0.79 秒/步，预计约 19 小时。
     **batch 64 × 梯度累积 1 = 等效 64**（已用 RoboTwin 配置核实），与你在 RoboTwin 上的 visual 实验一致
     （论文为 128）。实测 batch 64 显存峰值 8.3 GiB（+约 0.8 GiB 优化器状态），16 GB 显卡足够。训练为 bf16（与主项目一致）。
+12b. **断点续训与后台运行，机制同你在 RoboTwin 上用的 `train_resumable.py`**：每 1000 步原子保存 `latest.pt`
+    （权重、优化器、学习率调度、数据位置、随机数状态）；每个 epoch 用（种子 + epoch）固定数据顺序，续训时精确跳过已训练的 batch；
+    同一命令再次运行即自动续训；`STOP` 文件、Ctrl+C、`kill` 都会先保存再退出；`scripts/train_bg.sh` 用 `nohup` 后台启动。
+    相比原脚本额外保存随机数状态，并在续训时删除 `loss.csv` 中会被重新训练的行。
 13. checkpoint 保持主项目格式（`model_state_dict` 等），主项目的 `robotwin_infer.py` 也能加载。
 14. 推理：10 步 Euler、执行前 16 步、B 样条平滑（8 个控制点，与主项目相同），`noise_seed` 固定后评测可复现。
 

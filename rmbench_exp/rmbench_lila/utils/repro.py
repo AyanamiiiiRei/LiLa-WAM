@@ -29,8 +29,13 @@ def seed_everything(seed: int, deterministic: bool = False) -> None:
 
 
 def worker_init_fn(worker_id: int) -> None:
-    """Give every DataLoader worker a distinct but reproducible numpy/random seed."""
+    """Give every DataLoader worker a distinct but reproducible numpy/random seed.
+
+    Workers also ignore Ctrl+C: the main process then finishes the current step and saves
+    a resume point instead of crashing because its workers died first."""
+    import signal
     import torch
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     seed = torch.initial_seed() % 2**32
     np.random.seed(seed)
     random.seed(seed)

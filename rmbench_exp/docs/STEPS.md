@@ -78,17 +78,27 @@ python scripts/step07_sanity_checks.py overfit --config configs/exp/debug_overfi
 ```
 开环测试在第 8 步得到 checkpoint 后运行：
 ```bash
-python scripts/step07_open_loop_eval.py --run runs/baseline/<时间戳>
+python scripts/step07_open_loop_eval.py --run runs/baseline-seed0
 ```
 
-## 8. 训练
+## 8. 训练（后台运行、可断点续训）
 
 ```bash
-python scripts/step08_train.py --config configs/exp/baseline.yaml
-python scripts/step08_train.py --config configs/exp/no_foresight.yaml        # 可选消融
+conda activate LiLaWAM
+cd ~/lilawam/LiLa-WAM/rmbench_exp
+export RMBENCH_DATA=~/lilawam/RMBench/data/demo_clean
+bash scripts/train_bg.sh configs/exp/baseline.yaml          # 后台启动；关掉终端也不会停
+tail -f runs/baseline-seed0/train.log                       # 查看进度（Ctrl+C 只退出查看，不影响训练）
 ```
-运行目录 `runs/<实验名>/<时间戳>/`：`config.yaml`、`norm_stats.json`、`vtt/`、`train_episodes.json`、
-`run_info.json`（两边的 git commit、命令行）、`loss.csv`、`checkpoints/`。换随机种子：末尾加 `experiment.seed=1`。
+- **暂停**：`touch runs/baseline-seed0/STOP`，训练在当前一步结束后保存并退出。
+- **继续**：再次运行同一条 `train_bg.sh` 命令，自动从 `runs/baseline-seed0/latest.pt` 继续（使用运行目录中保存的配置）。
+- 每 1000 步覆盖保存一次 `latest.pt`（断点，约 1.3 GB）；每 10000 步另存只含权重的 `checkpoints/step_*.pt`（评测用，约 0.4 GB）。
+- 断电或死机：最多重复训练最近不到 1000 步；同一 epoch 内已训练的 batch 会被精确跳过（固定的每 epoch 数据顺序）。
+- 换随机种子：`bash scripts/train_bg.sh configs/exp/baseline.yaml "" experiment.seed=1`（运行目录为 `runs/baseline-seed1`）。
+- 前台运行也可以：`python scripts/step08_train.py --config configs/exp/baseline.yaml`，Ctrl+C 会保存断点后退出。
+
+运行目录 `runs/<实验名>-seed<种子>/`：`config.yaml`、`norm_stats.json`、`vtt/`、`train_episodes.json`、
+`run_info.json`（两边的 git commit、命令行、每次续训的记录）、`loss.csv`、`train.log`、`latest.pt`、`checkpoints/`。
 
 ## 9. RMBench 评测
 
@@ -99,7 +109,7 @@ pip install -e $RMBENCH_ROOT/XPolicyLab
 RMBENCH_ROOT=$RMBENCH_ROOT bash scripts/step09_install_adapter.sh
 # 在 RMBench 目录下评测一个任务
 cd $RMBENCH_ROOT
-TEST_NUM=100 bash XPolicyLab/policy/LiLa_WAM/eval.sh RMBench cover_blocks baseline/<时间戳> \
+TEST_NUM=100 bash XPolicyLab/policy/LiLa_WAM/eval.sh RMBench cover_blocks baseline-seed0 \
     aloha_agilex joint 0 0 0 <策略conda环境> RMBench
 ```
 - 第 3 个参数是运行目录（相对 `rmbench_exp/runs/`）；`checkpoint`、`noise_seed` 在 `deploy.yml` 中设置。
