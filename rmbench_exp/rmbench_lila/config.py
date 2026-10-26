@@ -89,6 +89,11 @@ def validate(cfg: DictConfig) -> None:
     if cfg.common.action_dim != a_layout.dim:
         errs.append(f"common.action_dim={cfg.common.action_dim} but action layout "
                     f"{a_layout.name!r} has dim {a_layout.dim}")
+    try:
+        from .transforms import build_transforms
+        build_transforms(cfg.rmbench.get("state_transforms", []), s_layout)
+    except (KeyError, ValueError) as e:
+        errs.append(f"rmbench.state_transforms: {e}")
     if cfg.rmbench.action_alignment not in ACTION_ALIGNMENTS:
         errs.append(f"rmbench.action_alignment must be one of {sorted(ACTION_ALIGNMENTS)}")
 

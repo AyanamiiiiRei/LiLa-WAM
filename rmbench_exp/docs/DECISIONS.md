@@ -21,6 +21,11 @@
 7. **状态**：`ee16` = 左末端位姿(7) + 左夹爪(1) + 右末端位姿(7) + 右夹爪(1)，与 RoboTwin 上的 16 维语义相同。
    夹爪来自 `state/left_ee_joint_states`；评测时 RMBench 的 `convert_state` 也优先取 `joint_action/left_gripper`，二者同源。
    第 2 步脚本会检查位姿后 4 维是否为单位四元数。
+7b. **四元数符号统一（`rmbench.state_transforms: [quat_continuity]`，默认开启）**。仿真器有时会在相邻帧间翻转末端
+    四元数的符号（q 与 −q 表示同一姿态），在状态输入中造成虚假的大幅跳变。第 7 步检查各任务前 5 条演示：
+    battery_try 左 6 / 右 20 次，observe_and_pickup 右 3 次，其余 8 个任务为 0；抽查的 RoboTwin 数据为 0
+    （只抽到 adjust_bottle 一个任务）。规则：每条演示首帧取 w ≥ 0，之后每帧取与上一帧点积非负的符号。
+    训练按整条演示处理，推理按步在线处理，结果完全相同（`tests/test_transforms.py`）。统计量在处理后的状态上计算。
 8. **图像**：一律用 `decode_image_bit`；之后不做任何颜色转换。训练、VTT、推理共用 `image.to_model_input`（INTER_LINEAR 缩放 + ImageNet 归一化）。
 9. **留出集**：每个任务最后 2 条演示（按编号）不参加训练、统计量和 VTT，用于开环测试。
 9b. **样本按帧均匀抽取（已确认，与 LiLa-WAM 原做法一致）**。各任务的训练量与其总帧数成正比：
@@ -44,7 +49,8 @@
     `model.future_feat.cond_tokens` 读取（`"all"` = 原行为，`"visual"` = 只用视觉 token）。
     子项目在 `lila_api.py` 中再设置一次作为保护；配置检查只接受 `all`/`visual`（`null` 会让 `ModelFactory` 传入 None 而报错）。
     这两处主项目修改需要提交到 git，`run_info.json` 才能记录到准确的模型版本。
-12. 训练按**优化器步数**计（默认 30000），等效 batch 默认 32×4=128。训练为 bf16（与主项目一致）。
+12. 训练按**优化器步数**计（默认 30000），**batch 64 × 梯度累积 1 = 等效 64**，与你在 RoboTwin 上的 visual 实验一致
+    （论文为 128）。实测 batch 64 显存峰值 8.3 GiB（+约 0.8 GiB 优化器状态），16 GB 显卡足够。训练为 bf16（与主项目一致）。
 13. checkpoint 保持主项目格式（`model_state_dict` 等），主项目的 `robotwin_infer.py` 也能加载。
 14. 推理：10 步 Euler、执行前 16 步、B 样条平滑（8 个控制点，与主项目相同），`noise_seed` 固定后评测可复现。
 

@@ -59,6 +59,8 @@ def cmd_actions(cfg, args):
     out = OUT / "actions"
     out.mkdir(parents=True, exist_ok=True)
     a_lay, s_lay = get_action_layout(cfg.rmbench.action_layout), get_state_layout(cfg.rmbench.state_layout)
+    from rmbench_lila.transforms import apply_sequence, build_transforms, count_sign_flips
+    transforms = build_transforms(cfg.rmbench.get("state_transforms", []), s_lay)
     refs = select_episodes(cfg, "train")
     by_task = {}
     for r in refs:
@@ -67,10 +69,15 @@ def cmd_actions(cfg, args):
     for task, ref in sorted(by_task.items()):
         with EpisodeReader(ref.path) as rd:
             act = rd.read_action(a_lay, cfg.rmbench.action_alignment)
-            st = rd.read_vector(s_lay, STATE_GROUP)
+            st_raw = rd.read_vector(s_lay, STATE_GROUP)
+        st = apply_sequence(transforms, st_raw)          # the state the model actually sees
         step = np.abs(np.diff(act, axis=0))
         jumps = {int(d): float(step[:, d].max()) for d in range(act.shape[1]) if step[:, d].max() > args.jump}
-        report[task] = {"len": int(act.shape[0]), "max_step_per_dim": step.max(0).round(4).tolist(), "jumps": jumps}
+        s_step = np.abs(np.diff(st, axis=0))
+        s_jumps = {int(d): float(s_step[:, d].max()) for d in range(st.shape[1]) if s_step[:, d].max() > args.jump}
+        report[task] = {"len": int(act.shape[0]), "max_step_per_dim": step.max(0).round(4).tolist(), "jumps": jumps,
+                        "state_jumps": s_jumps, "quat_flips_raw": count_sign_flips(st_raw, s_lay),
+                        "quat_flips_used": count_sign_flips(st, s_lay)}
         fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
         names = [f"{f.h5_key}[{k}]" for f, sl in a_lay.slices() for k in range(sl.stop - sl.start)]
         for d in range(act.shape[1]):
@@ -79,11 +86,13 @@ def cmd_actions(cfg, args):
         axes[0].legend(fontsize=6, ncol=7)
         for d in range(st.shape[1]):
             axes[1].plot(st[:, d], lw=1)
-        axes[1].set_title(f"state ({s_lay.name})")
+        axes[1].set_title(f"state ({s_lay.name}, transforms={[t.name for t in transforms] or 'none'})")
         fig.tight_layout()
         fig.savefig(out / f"{task}.png", dpi=110)
         plt.close(fig)
-        print(f"{task}: len {act.shape[0]}, jumps > {args.jump}: {jumps or 'none'}")
+        r = report[task]
+        print(f"{task}: len {act.shape[0]}, action jumps > {args.jump}: {jumps or 'none'}; "
+              f"state jumps: {s_jumps or 'none'}; quaternion flips {r['quat_flips_raw']} -> {r['quat_flips_used']}")
     (out / "report.json").write_text(json.dumps(report, indent=1))
     print(f"\nPlots in {out}. Check: left arm = dims 0-5, left gripper = 6, right arm = 7-12, "
           f"right gripper = 13; curves smooth; grippers between 0 and 1.")

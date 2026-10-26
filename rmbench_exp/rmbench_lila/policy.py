@@ -69,6 +69,10 @@ class LiLaWAMPolicy:
         self.n_steps = int(cfg.common.num_inference_steps)
         self.smooth = bool(cfg.inference.get("smooth_actions", True))
         self.smooth_pts = int(cfg.inference.get("smooth_ctrl_pts", 8))
+        from .schema import get_state_layout
+        from .transforms import build_transforms
+        self.state_transforms = build_transforms(cfg.rmbench.get("state_transforms", []),
+                                                 get_state_layout(cfg.rmbench.state_layout))
         hist = 1 + max(0, -min(self.state_offsets))
         self.states: deque = deque(maxlen=hist)
         self.rgb: np.ndarray | None = None
@@ -101,11 +105,15 @@ class LiLaWAMPolicy:
 
     def reset(self) -> None:
         self.states.clear()
+        for t in self.state_transforms:
+            t.reset()
         self.rgb = self.first_rgb = None
 
     def observe(self, state: np.ndarray, rgb: np.ndarray | None = None) -> None:
         """Record one env step. ``rgb`` = decoded HxWx3 uint8 RGB (None = keep the previous one)."""
         state = np.asarray(state, dtype=np.float32).reshape(-1)
+        for t in self.state_transforms:          # same transform as training, applied step by step
+            state = t.step(state)
         self.states.append(state)
         if rgb is not None:
             self.rgb = rgb

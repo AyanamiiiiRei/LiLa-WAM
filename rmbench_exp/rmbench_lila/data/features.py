@@ -58,12 +58,28 @@ class StateFeature(Feature):
 
     def __init__(self, cfg, train):
         super().__init__(cfg, train)
+        from ..transforms import build_transforms
         self.layout = get_state_layout(cfg.rmbench.state_layout)
         self.offsets = list(cfg.dataset.indices_config.state_indices)
+        self.transforms = build_transforms(cfg.rmbench.get("state_transforms", []), self.layout)
+        self._cache: dict[str, np.ndarray] = {}   # per worker: episode path -> transformed states
+
+    def _episode_states(self, ctx) -> np.ndarray:
+        # Transforms such as quat_continuity depend on all earlier frames, so the whole
+        # episode is transformed once (from frame 0, like the online policy) and cached.
+        arr = self._cache.get(ctx.ref.path)
+        if arr is None:
+            from ..transforms import apply_sequence
+            arr = apply_sequence(self.transforms, ctx.reader.read_vector(self.layout, STATE_GROUP))
+            self._cache[ctx.ref.path] = arr
+        return arr
 
     def __call__(self, ctx):
         idx, valid = clip_indices(ctx.anchor, self.offsets, ctx.length)
-        vec = ctx.reader.read_vector(self.layout, STATE_GROUP, idx)
+        if self.transforms:
+            vec = np.ascontiguousarray(self._episode_states(ctx)[idx])
+        else:
+            vec = ctx.reader.read_vector(self.layout, STATE_GROUP, idx)
         return {"state": torch.from_numpy(vec), "state_mask": torch.from_numpy(valid)}
 
 

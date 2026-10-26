@@ -20,6 +20,9 @@ rmbench:
   state_layout: ee16                # see rmbench_lila/schema.py
   action_layout: joint14
   action_alignment: next            # next: chunk[0]=state[t+1] (RMBench native) | current: chunk[0]=state[t]
+  # Applied to the state in training AND inference (rmbench_lila/transforms.py).
+  # quat_continuity removes simulator quaternion sign flips (battery_try, observe_and_pickup).
+  state_transforms: [quat_continuity]
 
 paths:
   norm_stats: artifacts/stats/stats-rmbench.json
@@ -80,9 +83,10 @@ model:
     adapter_depth: 4
 
 training:
-  # Effective batch = batch_size * grad_accum_steps (paper: 128). Tune batch_size to your GPU.
-  batch_size: 32
-  grad_accum_steps: 4
+  # Effective batch = batch_size * grad_accum_steps. 64 = the user's RoboTwin (visual) run
+  # (paper: 128). batch 64 measured at 8.3 GiB peak on a 16 GB GPU (step 07 shapes check).
+  batch_size: 64
+  grad_accum_steps: 1
   total_steps: 30000                # OPTIMIZER steps; training length is set in steps, not epochs
   save_every_steps: 5000
   log_every_steps: 20

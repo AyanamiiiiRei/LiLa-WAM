@@ -33,7 +33,8 @@ def main():
     refs = select_episodes(cfg, args.split)
     stats = compute_stats(refs, get_state_layout(cfg.rmbench.state_layout),
                           get_action_layout(cfg.rmbench.action_layout),
-                          cfg.rmbench.action_alignment, args.workers, args.exclude_flagged)
+                          cfg.rmbench.action_alignment, args.workers, args.exclude_flagged,
+                          state_transforms=cfg.rmbench.get("state_transforms", []))
     out = Path(args.out or cfg.paths.norm_stats)
     save_stats(stats, out)
 
@@ -42,6 +43,11 @@ def main():
     print(f"files: {meta['total_files']}  used: {meta['valid_files']}  flagged: {meta['flagged_files']}")
     for row in stats["flagged"][:20]:
         print(f"  FLAGGED {row['task']}: {Path(row['path']).name}: {'; '.join(row['issues'])}")
+    pt = stats["robotwin2"]["per_task"]
+    print(f"state transforms: {meta['state_transforms'] or 'none'}")
+    for task, d in pt.items():
+        if d["quat_flips_raw"] or d["quat_flips_used"]:
+            print(f"  quaternion sign flips {task}: raw {d['quat_flips_raw']} -> used {d['quat_flips_used']}")
     a = stats["robotwin2"]["action"]
     print("action min:", [round(x, 3) for x in a["min"]])
     print("action max:", [round(x, 3) for x in a["max"]])
