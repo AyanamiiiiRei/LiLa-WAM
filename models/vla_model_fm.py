@@ -266,6 +266,7 @@ class VLAModel(nn.Module):
                  future_feat_out_dim=None,            # = DINO hidden_size; None -> = dino_feat_dims[0]
                  future_feat_depth=2,
                  future_feat_heads=4,
+                 future_cond_tokens="all",          # "all": 动作之后全部 token；"visual": 只用视觉 token
                  ):
         super().__init__()
         self.hidden_dim = hidden_dim
@@ -280,6 +281,8 @@ class VLAModel(nn.Module):
         assert fusion_mode in ("per_layer", "concat"), f"Unknown fusion_mode: {fusion_mode}"
 
         self.use_future_feat = use_future_feat
+        assert future_cond_tokens in ("all", "visual"), f"Unknown future_cond_tokens: {future_cond_tokens}"
+        self.future_cond_tokens = future_cond_tokens
 
         # --- 1. Time Embedding ---
         self.time_mlp = nn.Sequential(
@@ -419,6 +422,7 @@ class VLAModel(nn.Module):
             tokens_list.append(tc)
 
         # 3. Multi-layer DINO Feature Tokens
+        dino_start = sum(t.shape[1] for t in tokens_list)   # 视觉 token 的起始下标
         #    per_layer: independent adapter per layer; concat: concat + project -> single adapter
         if dino_features_list is not None:
             assert len(dino_features_list) == self.num_dino_layers, \
@@ -452,7 +456,10 @@ class VLAModel(nn.Module):
 
         # Evolved observation tokens (all tokens after the action tokens),
         # used as cond tokens for future-feature prediction
-        cond_tokens = x[:, self.action_len:, :]
+        if self.future_cond_tokens == "visual":
+            cond_tokens = x[:, dino_start:, :]          # 只取视觉 token（concat 模式下为 64 个）
+        else:
+            cond_tokens = x[:, self.action_len:, :]     # 原行为：动作之后的全部 token
 
         return {
             "final_pred": final_pred,

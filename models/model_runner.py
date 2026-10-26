@@ -117,6 +117,7 @@ class ModelFactory:
             future_feat_out_dim=dino_hidden_size,
             future_feat_depth=future_feat_depth,
             future_feat_heads=future_feat_heads,
+            future_cond_tokens=ff_cfg.get('cond_tokens', 'all'),
         )
         return model
 
