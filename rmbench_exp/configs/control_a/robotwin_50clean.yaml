@@ -86,6 +86,7 @@ model:
   future_feat:
     enabled: true
     target_layer: -4        # which DINO hidden layer to supervise against
+    cond_tokens: visual     # control_a: same as the RMBench runs ("visual" version)
     num_decoder_layers: 4
     num_heads: 4
 

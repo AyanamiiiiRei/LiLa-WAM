@@ -107,6 +107,10 @@ def validate(cfg: DictConfig) -> None:
     if not ff_on and "future_image" in feats:
         errs.append("'future_image' in dataset.features but model.future_feat.enabled=false "
                     "(wasted I/O; remove it)")
+    ct = OmegaConf.select(cfg, "model.future_feat.cond_tokens", default="all")
+    if ct not in ("all", "visual"):
+        errs.append(f"model.future_feat.cond_tokens must be 'all' or 'visual' (got {ct!r}); "
+                    "null breaks ModelFactory, which reads this key")
     tc_on = bool(cfg.model.get("use_task_cond", False))
     if tc_on != ("task_cond" in feats):
         errs.append("model.use_task_cond and the 'task_cond' dataset feature must agree")

@@ -29,9 +29,11 @@
 
 11. **`feat_layers`**：`[-12, -8, -4]`（仓库默认，即第 13、17、21 个 block），与你在 RoboTwin 上的实验一致（已确认）。
     注意论文主设置是第 17、21 个 block（`[-8, -4]`）；报告中写明使用的是仓库默认的三层。
-11b. ⚠ **前瞻解码器的条件 token**：你在主项目中给 `VLAModel` 加了 `future_cond_tokens`（`"all"` 为原行为，`"visual"` 只用视觉 token）。
-    主项目的 `ModelFactory` 不传这个参数，所以默认总是 `"all"`。子项目用配置项 `model.future_feat.cond_tokens` 设置它
-    （在 `lila_api.py` 中设置到构建好的模型上，不修改主项目）；`null` 表示沿用主项目默认值。必须与 RoboTwin 上的实验一致。
+11b. **前瞻解码器的条件 token：`visual`**（已确认：只与 RoboTwin 上的 visual 版本对照）。
+    这是你在主项目中加的选项：`VLAModel.future_cond_tokens`，由你修改的 `ModelFactory` 从
+    `model.future_feat.cond_tokens` 读取（`"all"` = 原行为，`"visual"` = 只用视觉 token）。
+    子项目在 `lila_api.py` 中再设置一次作为保护；配置检查只接受 `all`/`visual`（`null` 会让 `ModelFactory` 传入 None 而报错）。
+    这两处主项目修改需要提交到 git，`run_info.json` 才能记录到准确的模型版本。
 12. 训练按**优化器步数**计（默认 30000），等效 batch 默认 32×4=128。训练为 bf16（与主项目一致）。
 13. checkpoint 保持主项目格式（`model_state_dict` 等），主项目的 `robotwin_infer.py` 也能加载。
 14. 推理：10 步 Euler、执行前 16 步、B 样条平滑（8 个控制点，与主项目相同），`noise_seed` 固定后评测可复现。

@@ -98,17 +98,18 @@ def _apply_future_cond_tokens(action_model, mode) -> None:
 
     Relies on the user's main-project option ``VLAModel.future_cond_tokens``
     ("all" = original behaviour: every token after the action tokens; "visual" = only
-    the visual tokens). ModelFactory does not pass it, so it is set on the built model
-    here instead of editing the main project. null = leave the main project's default.
+    the visual tokens). The user's ModelFactory already passes cfg.model.future_feat.cond_tokens;
+    setting it again here is a guard that (a) fails loudly if the checkout lacks the option
+    while "visual" is requested and (b) keeps working with an unmodified ModelFactory.
     """
-    if mode is None:
-        return
-    if not hasattr(action_model, "future_cond_tokens"):
-        raise RuntimeError(
-            f"model.future_feat.cond_tokens={mode!r} needs VLAModel.future_cond_tokens, which this "
-            "LiLa-WAM checkout does not have (models/vla_model_fm.py). Set it to null or update the main project.")
     if mode not in ("all", "visual"):
-        raise ValueError(f"model.future_feat.cond_tokens must be 'all', 'visual' or null, got {mode!r}")
+        raise ValueError(f"model.future_feat.cond_tokens must be 'all' or 'visual', got {mode!r}")
+    if not hasattr(action_model, "future_cond_tokens"):
+        if mode == "all":
+            return      # unmodified main project: "all" is its only (original) behaviour
+        raise RuntimeError(
+            "model.future_feat.cond_tokens='visual' needs VLAModel.future_cond_tokens, which this "
+            "LiLa-WAM checkout does not have (models/vla_model_fm.py).")
     action_model.future_cond_tokens = mode
     logger.info(f"foresight decoder conditioned on {mode!r} tokens")
 
