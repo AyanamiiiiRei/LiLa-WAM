@@ -1,0 +1,11 @@
+# Control experiment B1, long-range variant: same number of tokens as state_hist8 but
+# reaching ~16 s back (RMBench episodes last hundreds of steps; 8 consecutive steps
+# only cover 0.5 s). Compare both to see whether *range* or *amount* of history matters.
+_base_: ../base.yaml
+experiment:
+  name: state_hist_sparse
+common:
+  proprio_len: 8
+dataset:
+  indices_config:
+    state_indices: [-240, -120, -60, -30, -15, -8, -4, 0]

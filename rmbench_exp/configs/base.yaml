@@ -1,0 +1,105 @@
+# Base config for LiLa-WAM on RMBench. Experiment configs in exp/ inherit it via `_base_`
+# and only list what they change. Relative paths are relative to rmbench_exp/.
+#
+# Sections `common`, `dataset`, `model`, `training`, `inference`, `system` keep the
+# same keys as the main project's configs/robotwin_all.yaml, because the main
+# project's model factory reads them. `experiment`, `rmbench`, `paths` are new.
+
+experiment:
+  name: base
+  seed: 0
+  output_root: runs                 # runs/<name>/<timestamp>/
+
+rmbench:
+  # .../RMBench/data/demo_clean  (override with RMBENCH_DATA=... or rmbench.data_root=...)
+  data_root: ${oc.env:RMBENCH_DATA,/path/to/RMBench/data/demo_clean}
+  embodiment: aloha_agilex          # the downloaded data is aloha_agilex; eval must use it too
+  tasks: null                       # null = every task found; or a list of task names
+  holdout_per_task: 2               # last N episodes per task kept out of training (open-loop eval)
+  max_episodes_per_task: null       # cap on training episodes per task (data-size ablations)
+  state_layout: ee16                # see rmbench_lila/schema.py
+  action_layout: joint14
+  action_alignment: next            # next: chunk[0]=state[t+1] (RMBench native) | current: chunk[0]=state[t]
+
+paths:
+  norm_stats: artifacts/stats/stats-rmbench.json
+
+common:
+  action_dim: 14
+  state_dim: 16
+  action_chunk_size: 32
+  proprio_len: 1                    # must equal len(dataset.indices_config.state_indices)
+  num_inference_steps: 10
+  action_execution_horizon: 16
+
+dataset:
+  type: rmbench
+  # Feature builders (rmbench_lila/data/features.py) assembled into each sample.
+  features: [state, action_chunk, image, future_image, task_cond]
+  camera_names: [head_camera]
+  image_size: [320, 240]            # (W, H); RMBench head camera is 320x240
+  task_cond_dir: artifacts/vtt/rmbench
+  image_aug: false
+  future_frame_offset: null         # null -> action_chunk_size (32)
+  anchor_stride: 1
+  indices_config:
+    state_indices: [0]
+    camera_indices: [0]
+    action_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+                     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
+model:
+  variant: lila_wam               # model registry name (rmbench_lila/models.py)
+  num_registers: 2
+  use_task_cond: true
+  vision_encoder:
+    checkpoint_path: ${lila_root:}/dinov3_pretrain/dinov3-vitl16-pretrain-lvd1689m
+    # !! Keep identical to your RoboTwin run and report it. Paper = blocks 17 & 21,
+    # i.e. hidden_states[-8] and [-4] for the 24-block ViT-L. Repo default is [-12, -8, -4].
+    feat_layers: [-8, -4]
+    include_cls_register: true
+    fusion_mode: concat
+    concat:
+      proj_type: linear
+      pre_norm: true
+      out_dim: null
+  future_feat:
+    enabled: true
+    target_layer: -4
+    num_decoder_layers: 4
+    num_heads: 4
+  action_expert:
+    depth: 12
+    hidden_size: 768
+    num_heads: 8
+    vlm_adapter_num_queries: 64
+    adapter_depth: 4
+
+training:
+  # Effective batch = batch_size * grad_accum_steps (paper: 128). Tune batch_size to your GPU.
+  batch_size: 32
+  grad_accum_steps: 4
+  total_steps: 30000                # OPTIMIZER steps; training length is set in steps, not epochs
+  save_every_steps: 5000
+  log_every_steps: 20
+  time_sampler: logit_normal
+  time_mu: 0.0
+  time_sigma: 1.0
+  learning_rate: 2.0e-4
+  lr_min: 5.0e-5
+  warmup_steps: 0
+  weight_decay: 1.0e-2
+  betas: [0.9, 0.99]
+  grad_clip_norm: 1.0
+  lambda_future_feat: 0.5
+  use_vel_weight: false
+  vel_weight_alpha: 0.2
+  vel_weight_sigma: 0.01
+
+inference:
+  smooth_actions: true              # B-spline smoothing, same as the RoboTwin setup
+  smooth_ctrl_pts: 8
+
+system:
+  num_workers: 8
+  pin_memory: true

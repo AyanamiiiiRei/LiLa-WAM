@@ -1,0 +1,136 @@
+# 逐步操作手册
+
+步骤编号与 [`PLAN.md`](PLAN.md) 一致。所有命令都在 `LiLa-WAM/rmbench_exp/` 下运行；
+`--config` 默认是 `configs/exp/baseline.yaml`，任何配置项都可以在命令末尾用 `键=值` 覆盖。
+
+## 进度
+
+- [ ] 1 准备环境
+- [ ] 2 检查实际数据，核对 `rmbench_lila/tasks.py` 中的记忆说明
+- [ ] 3 （已由代码完成）数据加载：`schema.py` + `episodes.py` + `data/`
+- [ ] 4 归一化统计量
+- [ ] 5 VTT 及任务相似度
+- [ ] 6 确认训练配置（尤其 `feat_layers`、batch size）
+- [ ] 7 训练前检查：color / actions / shapes / overfit + 开环测试
+- [ ] 8 训练：baseline，可选 no_foresight
+- [ ] 9 安装适配器并在 RMBench 中评测
+- [ ] 10 对照实验 A / B / C
+- [ ] 11 结果分析：置信区间、失败原因、M1 vs Mn
+
+---
+
+## 1. 准备环境
+
+```bash
+# RMBench（仿真评测环境），按其 README
+git clone --recurse-submodules https://github.com/RoboTwin-Platform/RMBench.git
+cd RMBench && bash scripts/_install.sh && bash scripts/_download_assets.sh && bash scripts/_download_data.sh
+export RMBENCH_ROOT=$PWD RMBENCH_DATA=$PWD/data/demo_clean
+
+# LiLa-WAM 环境（另一个 conda 环境），在其基础上：
+pip install h5py omegaconf scipy opencv-python tqdm matplotlib pytest
+# DINOv3 权重放在 LiLa-WAM/dinov3_pretrain/dinov3-vitl16-pretrain-lvd1689m（与主项目相同）
+cd LiLa-WAM/rmbench_exp && python -m pytest tests -q     # 数据通路自检
+```
+
+## 2. 检查实际数据
+
+```bash
+python scripts/step02_inspect_data.py --data_root $RMBENCH_DATA --per_task 2
+```
+阅读 `artifacts/inspect/report.md`，确认：
+- 每条抽检演示的 `problems: none`；
+- `action[t]==state[t+1]` 的最大差值约为 0；`frequency` 为 15；
+- `images/*_hdf5_vs_video.png` 左右两半颜色一致（报告中 `|hdf5 - video|` 应明显小于 `|swapped - video|`）；
+- 长度分布表：用它估算每个 epoch 的样本数（第 6 步）。
+
+然后逐个阅读 `$RMBENCH_ROOT/envs/<任务>.py`，修改 `rmbench_lila/tasks.py` 中的 `memory` 说明并设 `verified=True`。
+
+## 4. 归一化统计量
+
+```bash
+python scripts/step04_compute_stats.py           # 输出 artifacts/stats/stats-rmbench.json
+```
+此脚本**只读**。被标记（flagged）的演示会列出来但默认仍参与统计；看过之后若确认是坏数据，再加 `--exclude_flagged`。
+默认只用训练集（不含每个任务最后 2 条留出演示）。
+
+## 5. VTT
+
+```bash
+python scripts/step05_compute_vtt.py             # 输出 artifacts/vtt/rmbench/
+```
+查看 `meta.json` 中的 `most_similar_pairs` 和 `cosine_similarity.csv`：相似度很高的任务对值得在报告中提到。
+
+## 6. 训练配置
+
+在 `configs/base.yaml` 中确认：
+- `model.vision_encoder.feat_layers`：**必须与你在 RoboTwin 上的实验一致**（默认按论文写成 `[-8, -4]`）；
+- `training.batch_size × grad_accum_steps`：等效 batch（论文 128）。16 GB 显存先试 `batch_size=32`，用 shapes 检查看显存；
+- `training.total_steps`：按步数而非 epoch。启动时日志会打印对应的 epoch 数。
+
+## 7. 训练前检查
+
+```bash
+python scripts/step07_sanity_checks.py color      # artifacts/sanity/color：左=dataloader，右=mp4
+python scripts/step07_sanity_checks.py actions    # artifacts/sanity/actions：动作/状态曲线与跳变
+python scripts/step07_sanity_checks.py shapes     # 打印 token 序列，应为 (B, 100, 768)
+python scripts/step07_sanity_checks.py overfit --config configs/exp/debug_overfit.yaml
+```
+开环测试在第 8 步得到 checkpoint 后运行：
+```bash
+python scripts/step07_open_loop_eval.py --run runs/baseline/<时间戳>
+```
+
+## 8. 训练
+
+```bash
+python scripts/step08_train.py --config configs/exp/baseline.yaml
+python scripts/step08_train.py --config configs/exp/no_foresight.yaml        # 可选消融
+```
+运行目录 `runs/<实验名>/<时间戳>/`：`config.yaml`、`norm_stats.json`、`vtt/`、`train_episodes.json`、
+`run_info.json`（两边的 git commit、命令行）、`loss.csv`、`checkpoints/`。换随机种子：末尾加 `experiment.seed=1`。
+
+## 9. RMBench 评测
+
+```bash
+# 策略环境中安装 XPolicyLab（一次）
+pip install -e $RMBENCH_ROOT/XPolicyLab
+# 把适配器链接到 RMBench（只创建一个符号链接）
+RMBENCH_ROOT=$RMBENCH_ROOT bash scripts/step09_install_adapter.sh
+# 在 RMBench 目录下评测一个任务
+cd $RMBENCH_ROOT
+TEST_NUM=100 bash XPolicyLab/policy/LiLa_WAM/eval.sh RMBench cover_blocks baseline/<时间戳> \
+    aloha_agilex joint 0 0 0 <策略conda环境> RMBench
+```
+- 第 3 个参数是运行目录（相对 `rmbench_exp/runs/`）；`checkpoint`、`noise_seed` 在 `deploy.yml` 中设置。
+- 机器人必须是 `aloha_agilex`，动作类型必须是 `joint`，适配器会检查。
+- 每条评测记录写入 `runs/<run>/rmbench_eval/ckpt_<步数>/episodes.jsonl`；视频在 RMBench 的 `eval_result/` 下。
+- `TEST_NUM` 默认 100（RMBench 评测脚本的默认值）；请与 RMBench 论文的协议核对。
+- 不同模型使用**相同的种子参数**（第 6 个参数），RMBench 会生成相同的测试场景序列，从而可以做配对比较。
+
+## 10. 对照实验
+
+**A：数据量和环境**（使用主项目原样代码）
+```bash
+python scripts/step10a_make_robotwin_subset.py --src <RoboTwin 数据根目录> --dst <输出目录> --n 50
+# 修改 configs/control_a/robotwin_50clean.yaml 中的 dataset_dir，然后在 LiLa-WAM 根目录：
+python utils/precompute_task_cond.py --config rmbench_exp/configs/control_a/robotwin_50clean.yaml --output_dir ./data-control_a-taskcond
+python train.py --config rmbench_exp/configs/control_a/robotwin_50clean.yaml --norm_stats_path ./utils/stat-500-all.json
+```
+训练步数尽量与 RMBench 主实验对齐（主项目按 epoch 计；日志里有每个 epoch 的步数）。
+
+**B：加入历史信息**
+- B1 状态历史：`configs/exp/state_hist8.yaml`（连续 8 步）和 `state_hist_sparse.yaml`（同样 8 个 token，回看约 16 秒）。
+- B2/B3 图像历史：数据侧已有 `first_image` feature；模型侧需要新增一个模型变体，做法见 [`EXTENDING.md`](EXTENDING.md)。
+
+**C：与已有方法比较**：把第 11 步的表与 RMBench 论文 / Hugging Face 评测日志放在一起，注明评测次数、机器人、训练数据是否一致。
+
+## 11. 结果分析
+
+```bash
+python analysis/results.py table   runs/baseline/<ts>                         # 每任务成功率 + 95% CI，M1/Mn 汇总
+python analysis/results.py compare runs/baseline/<ts> runs/state_hist8/<ts>   # 同种子配对比较（McNemar）
+python analysis/failure_labels.py init      runs/baseline/<ts>/rmbench_eval/ckpt_<步数>
+# 看视频，在 failure_labels.csv 中填 label：memory / manipulation / stuck / other
+python analysis/failure_labels.py summarize runs/baseline/<ts>/rmbench_eval/ckpt_<步数>
+```

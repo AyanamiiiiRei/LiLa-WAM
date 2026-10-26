@@ -1,0 +1,10 @@
+# Control experiment B1 (plan step 10): 8 consecutive past states (~0.5 s at 15 Hz).
+# No model code changes: the model already accepts proprio_len state tokens.
+_base_: ../base.yaml
+experiment:
+  name: state_hist8
+common:
+  proprio_len: 8
+dataset:
+  indices_config:
+    state_indices: [-7, -6, -5, -4, -3, -2, -1, 0]

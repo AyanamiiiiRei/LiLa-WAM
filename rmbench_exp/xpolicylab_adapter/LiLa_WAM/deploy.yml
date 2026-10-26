@@ -1,0 +1,22 @@
+# LiLa-WAM (rmbench_exp) XPolicyLab deployment config.
+# policy_name MUST equal the folder name under XPolicyLab/policy/.
+# null values are filled by setup_eval_policy_server.sh --overrides at launch.
+policy_name: LiLa_WAM
+protocol: ws
+port: null
+host: localhost
+
+bench_name: null
+task_name: null
+ckpt_name: null          # run directory relative to <rmbench_exp>/runs, e.g. baseline/20261026-120000
+env_cfg_type: null       # must be aloha_agilex (the robot the RMBench data was collected with)
+action_type: null        # must be joint
+seed: null
+eval_batch: false        # the policy keeps per-episode history -> single env only
+
+device: cuda:0
+rmbench_exp_root: null   # null -> found by following the symlink to this folder
+run_dir: null            # null -> <rmbench_exp_root>/runs/<ckpt_name>
+checkpoint: latest       # "latest", a step number, or a .pt path
+execution_horizon: null  # null -> common.action_execution_horizon of the run (16)
+noise_seed: 0            # seeds the flow-matching noise for reproducible rollouts

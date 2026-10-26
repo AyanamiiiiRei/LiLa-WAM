@@ -1,0 +1,4 @@
+# Main experiment: unmodified LiLa-WAM (L_fm + 0.5 L_ff), one multi-task model on all RMBench tasks.
+_base_: ../base.yaml
+experiment:
+  name: baseline

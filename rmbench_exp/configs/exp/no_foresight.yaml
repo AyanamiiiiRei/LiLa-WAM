@@ -1,0 +1,11 @@
+# Ablation (plan step 8): without the foresight loss L_ff.
+_base_: ../base.yaml
+experiment:
+  name: no_foresight
+dataset:
+  features: [state, action_chunk, image, task_cond]
+model:
+  future_feat:
+    enabled: false
+training:
+  lambda_future_feat: 0.0

@@ -1,0 +1,6 @@
+artifacts/
+runs/
+__pycache__/
+*.pyc
+.pytest_cache/
+comparison.md
