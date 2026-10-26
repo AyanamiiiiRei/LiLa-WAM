@@ -49,7 +49,10 @@
     `model.future_feat.cond_tokens` 读取（`"all"` = 原行为，`"visual"` = 只用视觉 token）。
     子项目在 `lila_api.py` 中再设置一次作为保护；配置检查只接受 `all`/`visual`（`null` 会让 `ModelFactory` 传入 None 而报错）。
     这两处主项目修改需要提交到 git，`run_info.json` 才能记录到准确的模型版本。
-12. 训练按**优化器步数**计（默认 30000），**batch 64 × 梯度累积 1 = 等效 64**，与你在 RoboTwin 上的 visual 实验一致
+12. 训练按**优化器步数**与 RoboTwin visual 实验对齐：**85,928 步** = 8 epoch × 10,741 步/epoch（687,482 样本，
+    `configs/mini9_visual.yaml`，`data_mode: both`）。在 RMBench（316,786 样本）上相当于约 17.4 个 epoch，
+    学习率余弦曲线（2e-4 → 5e-5）的长度与 RoboTwin 相同。RoboTwin 实测约 0.79 秒/步，预计约 19 小时。
+    **batch 64 × 梯度累积 1 = 等效 64**（已用 RoboTwin 配置核实），与你在 RoboTwin 上的 visual 实验一致
     （论文为 128）。实测 batch 64 显存峰值 8.3 GiB（+约 0.8 GiB 优化器状态），16 GB 显卡足够。训练为 bf16（与主项目一致）。
 13. checkpoint 保持主项目格式（`model_state_dict` 等），主项目的 `robotwin_infer.py` 也能加载。
 14. 推理：10 步 Euler、执行前 16 步、B 样条平滑（8 个控制点，与主项目相同），`noise_seed` 固定后评测可复现。

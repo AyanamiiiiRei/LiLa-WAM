@@ -87,8 +87,10 @@ training:
   # (paper: 128). batch 64 measured at 8.3 GiB peak on a 16 GB GPU (step 07 shapes check).
   batch_size: 64
   grad_accum_steps: 1
-  total_steps: 30000                # OPTIMIZER steps; training length is set in steps, not epochs
-  save_every_steps: 5000
+  # OPTIMIZER steps, aligned with the user's RoboTwin visual run: 8 epochs x 10,741 steps
+  # (687,482 samples / batch 64) = 85,928 steps (~17.4 epochs of RMBench's 316,786 samples).
+  total_steps: 85928
+  save_every_steps: 10000           # each checkpoint ~1.3 GB (weights + AdamW state)
   log_every_steps: 20
   time_sampler: logit_normal
   time_mu: 0.0
