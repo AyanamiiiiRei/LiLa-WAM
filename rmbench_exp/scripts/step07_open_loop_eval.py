@@ -10,7 +10,7 @@ action_execution_horizon steps) and over the full chunk, separately for arm join
 and grippers.
 
 Usage:
-  python scripts/step07_open_loop_eval.py --run runs/baseline/<ts> [--checkpoint latest] [--stride 16]
+  python scripts/step07_open_loop_eval.py --run runs/baseline-seed0 [--checkpoint latest] [--stride 16]
 """
 
 from __future__ import annotations

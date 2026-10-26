@@ -28,7 +28,7 @@ echo "linked ${DST} -> ${SRC}"
 cat <<EOF
 
 Evaluate one task (from ${RMBENCH_ROOT}):
-  TEST_NUM=100 bash XPolicyLab/policy/LiLa_WAM/eval.sh RMBench <task> <run, e.g. baseline/20261026-120000> \\
+  TEST_NUM=100 bash XPolicyLab/policy/LiLa_WAM/eval.sh RMBench <task> <run, e.g. baseline-seed0> \\
       aloha_agilex joint <seed> <policy_gpu> <env_gpu> <policy_conda_env> RMBench
 Per-episode results: ${SUB}/runs/<run>/rmbench_eval/ckpt_<step>/episodes.jsonl
 EOF

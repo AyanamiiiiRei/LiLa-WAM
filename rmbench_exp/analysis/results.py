@@ -6,8 +6,8 @@ Reads the per-episode logs written by the LiLa_WAM adapter:
     <run>/rmbench_eval/ckpt_<step>/episodes.jsonl
 
 Usage:
-  python analysis/results.py table runs/baseline/<ts>
-  python analysis/results.py compare runs/baseline/<ts> runs/state_hist8/<ts>
+  python analysis/results.py table runs/baseline-seed0
+  python analysis/results.py compare runs/baseline-seed0 runs/state_hist8-seed0
   (add --ckpt <step> when a run was evaluated with several checkpoints)
 Writes a markdown table next to the logs (or to --out).
 """

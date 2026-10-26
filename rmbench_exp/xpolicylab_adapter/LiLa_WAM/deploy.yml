@@ -8,7 +8,7 @@ host: localhost
 
 bench_name: null
 task_name: null
-ckpt_name: null          # run directory relative to <rmbench_exp>/runs, e.g. baseline/20261026-120000
+ckpt_name: null          # run directory relative to <rmbench_exp>/runs, e.g. baseline-seed0
 env_cfg_type: null       # must be aloha_agilex (the robot the RMBench data was collected with)
 action_type: null        # must be joint
 seed: null

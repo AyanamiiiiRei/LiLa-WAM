@@ -16,8 +16,8 @@ Videos: RMBench writes them to eval_result/<task>/<policy>/<task_config>/<ckpt>/
 (N = order of the evaluated episodes, matching the order of lines in episodes.jsonl).
 
 Usage:
-  python analysis/failure_labels.py init runs/baseline/<ts>/rmbench_eval/ckpt_30000
-  python analysis/failure_labels.py summarize runs/baseline/<ts>/rmbench_eval/ckpt_30000
+  python analysis/failure_labels.py init runs/baseline-seed0/rmbench_eval/ckpt_30000
+  python analysis/failure_labels.py summarize runs/baseline-seed0/rmbench_eval/ckpt_30000
 """
 
 from __future__ import annotations

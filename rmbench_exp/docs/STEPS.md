@@ -138,9 +138,9 @@ python train.py --config rmbench_exp/configs/control_a/robotwin_50clean.yaml --n
 ## 11. 结果分析
 
 ```bash
-python analysis/results.py table   runs/baseline/<ts>                         # 每任务成功率 + 95% CI，M1/Mn 汇总
-python analysis/results.py compare runs/baseline/<ts> runs/state_hist8/<ts>   # 同种子配对比较（McNemar）
-python analysis/failure_labels.py init      runs/baseline/<ts>/rmbench_eval/ckpt_<步数>
+python analysis/results.py table   runs/baseline-seed0                         # 每任务成功率 + 95% CI，M1/Mn 汇总
+python analysis/results.py compare runs/baseline-seed0 runs/state_hist8-seed0   # 同种子配对比较（McNemar）
+python analysis/failure_labels.py init      runs/baseline-seed0/rmbench_eval/ckpt_<步数>
 # 看视频，在 failure_labels.csv 中填 label：memory / manipulation / stuck / other
-python analysis/failure_labels.py summarize runs/baseline/<ts>/rmbench_eval/ckpt_<步数>
+python analysis/failure_labels.py summarize runs/baseline-seed0/rmbench_eval/ckpt_<步数>
 ```
