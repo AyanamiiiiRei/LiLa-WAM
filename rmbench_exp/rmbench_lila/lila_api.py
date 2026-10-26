@@ -76,6 +76,7 @@ def build_model(cfg: DictConfig, norm_stats_path: str, device: str, dtype: torch
         patch_size=patch,
     )
     ff = cfg.model.get("future_feat", {}) or {}
+    _apply_future_cond_tokens(action_model, ff.get("cond_tokens", None))
     wrapper = VLAWrapper(
         vision_encoder=vision_encoder,
         action_model=action_model,
@@ -90,6 +91,26 @@ def build_model(cfg: DictConfig, norm_stats_path: str, device: str, dtype: torch
         future_feat_target_layer=ff.get("target_layer", -1),
     )
     return BuiltModel(wrapper, action_model, hidden, n_reg, patch)
+
+
+def _apply_future_cond_tokens(action_model, mode) -> None:
+    """Which tokens feed the foresight decoder (config: model.future_feat.cond_tokens).
+
+    Relies on the user's main-project option ``VLAModel.future_cond_tokens``
+    ("all" = original behaviour: every token after the action tokens; "visual" = only
+    the visual tokens). ModelFactory does not pass it, so it is set on the built model
+    here instead of editing the main project. null = leave the main project's default.
+    """
+    if mode is None:
+        return
+    if not hasattr(action_model, "future_cond_tokens"):
+        raise RuntimeError(
+            f"model.future_feat.cond_tokens={mode!r} needs VLAModel.future_cond_tokens, which this "
+            "LiLa-WAM checkout does not have (models/vla_model_fm.py). Set it to null or update the main project.")
+    if mode not in ("all", "visual"):
+        raise ValueError(f"model.future_feat.cond_tokens must be 'all', 'visual' or null, got {mode!r}")
+    action_model.future_cond_tokens = mode
+    logger.info(f"foresight decoder conditioned on {mode!r} tokens")
 
 
 def load_vision_encoder(cfg: DictConfig, device: str, dtype: torch.dtype):

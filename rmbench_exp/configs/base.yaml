@@ -66,6 +66,10 @@ model:
   future_feat:
     enabled: true
     target_layer: -4
+    # Tokens feeding the foresight decoder: null = main-project default ("all", original
+    # behaviour); "all" | "visual" use your VLAModel.future_cond_tokens option. Keep it the
+    # same as in your RoboTwin run.
+    cond_tokens: null
     num_decoder_layers: 4
     num_heads: 4
   action_expert:

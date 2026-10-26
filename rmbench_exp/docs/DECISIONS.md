@@ -29,6 +29,9 @@
 
 11. ⚠ **`feat_layers`**：默认 `[-8, -4]`，对应论文的第 17、21 个 block（ViT-L 共 24 个 block，`hidden_states` 长度 25）。
     仓库默认是 `[-12, -8, -4]`。**必须与你在 RoboTwin 上的实验一致**，请确认后修改 `configs/base.yaml`（以及 `control_a` 配置）。
+11b. ⚠ **前瞻解码器的条件 token**：你在主项目中给 `VLAModel` 加了 `future_cond_tokens`（`"all"` 为原行为，`"visual"` 只用视觉 token）。
+    主项目的 `ModelFactory` 不传这个参数，所以默认总是 `"all"`。子项目用配置项 `model.future_feat.cond_tokens` 设置它
+    （在 `lila_api.py` 中设置到构建好的模型上，不修改主项目）；`null` 表示沿用主项目默认值。必须与 RoboTwin 上的实验一致。
 12. 训练按**优化器步数**计（默认 30000），等效 batch 默认 32×4=128。训练为 bf16（与主项目一致）。
 13. checkpoint 保持主项目格式（`model_state_dict` 等），主项目的 `robotwin_infer.py` 也能加载。
 14. 推理：10 步 Euler、执行前 16 步、B 样条平滑（8 个控制点，与主项目相同），`noise_seed` 固定后评测可复现。
