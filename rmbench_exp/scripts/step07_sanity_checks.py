@@ -121,6 +121,33 @@ def cmd_shapes(cfg, args):
     print(f"loss {loss.item():.4f}  fm {info['loss_mse']:.4f}  ff {info['loss_future_feat']:.4f}")
     assert seen.get("x", (0, -1))[1] == expect, "unexpected token count"
 
+    # ---- peak GPU memory of one training step at the configured batch size
+    if not device.startswith("cuda"):
+        return
+    bs = int(args.mem_batch or cfg.training.batch_size)
+    rng = np.random.default_rng(args.seed)
+    big = collate([ds[int(i)] for i in rng.choice(len(ds), size=bs, replace=False)])
+    del loss
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+    built.action_model.train()
+    try:
+        with torch.autocast("cuda", dtype=dtype):
+            loss, _ = built.wrapper(big)
+        loss.backward()
+        torch.cuda.synchronize()
+        peak = torch.cuda.max_memory_allocated() / 2**30
+        total = torch.cuda.get_device_properties(0).total_memory / 2**30
+        # AdamW adds two fp-state tensors per trainable parameter on the first optimizer step
+        n_train = sum(p.numel() for p in built.action_model.parameters() if p.requires_grad)
+        adam = 2 * n_train * torch.finfo(dtype).bits / 8 / 2**30
+        print(f"\nbatch_size={bs}: peak {peak:.1f} GiB (+ ~{adam:.1f} GiB AdamW state) of {total:.1f} GiB")
+        print("OK" if peak + adam < 0.9 * total else
+              "TOO TIGHT: lower training.batch_size and raise grad_accum_steps (keep the product = 128)")
+    except torch.cuda.OutOfMemoryError:
+        print(f"\nbatch_size={bs}: OUT OF MEMORY. Retry with --mem_batch {bs // 2}, then set "
+              f"training.batch_size={bs // 2} training.grad_accum_steps={2 * int(cfg.training.grad_accum_steps)}")
+
 
 def cmd_overfit(cfg, args):
     from rmbench_lila.trainer import Trainer
@@ -131,10 +158,13 @@ def cmd_overfit(cfg, args):
     tr.train()
     import csv
     rows = list(csv.DictReader(open(run / "loss.csv")))
-    first, last = float(rows[0]["loss_fm"]), float(rows[-1]["loss_fm"])
-    print(f"\nflow-matching loss on one batch: {first:.4f} -> {last:.4f}")
-    print("OK: the model can fit the data." if last < 0.1 * first else
-          "WARNING: loss did not drop by 10x — check data/normalisation before real training.")
+    # noise and flow time are resampled every step, so the loss is noisy: compare averages
+    first = float(np.mean([float(r["loss_fm"]) for r in rows[:3]]))
+    last = float(np.mean([float(r["loss_fm"]) for r in rows[-5:]]))
+    print(f"\nflow-matching loss on one batch: {first:.4f} -> {last:.4f} (x{first / max(last, 1e-9):.1f} lower)")
+    print("OK: the model can fit the data." if last < 0.2 * first else
+          "WARNING: loss fell less than 5x. Rerun with training.total_steps=1000; if it still does not "
+          "fall, check data/normalisation before real training.")
 
 
 def main():
@@ -147,6 +177,8 @@ def main():
     p.add_argument("--jump", type=float, default=0.2, help="actions: flag per-step changes above this (rad)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cuda")
+    p.add_argument("--mem_batch", type=int, default=None, help="shapes: batch size for the memory test "
+                   "(default training.batch_size)")
     args = p.parse_args()
     cfg = _common.load(args)
     {"color": cmd_color, "actions": cmd_actions, "shapes": cmd_shapes, "overfit": cmd_overfit}[args.check](cfg, args)
