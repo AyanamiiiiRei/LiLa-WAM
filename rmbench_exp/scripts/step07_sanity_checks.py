@@ -107,8 +107,14 @@ def cmd_shapes(cfg, args):
     for k, v in batch.items():
         print(f"batch[{k!r}]: {tuple(v.shape) if hasattr(v, 'shape') else v}")
     seen = {}
-    h = lila_api.dit_blocks(built.action_model)[0].register_forward_pre_hook(
-        lambda m, inp: seen.setdefault("x", tuple(inp[0].shape)))
+
+    def record_shape(module, inputs):
+        # A forward_pre_hook that RETURNS something replaces the module's inputs,
+        # so this must only record and return None.
+        seen.setdefault("x", tuple(inputs[0].shape))
+        return None
+
+    h = lila_api.dit_blocks(built.action_model)[0].register_forward_pre_hook(record_shape)
     with torch.autocast("cuda", dtype=dtype, enabled=device.startswith("cuda")):
         loss, info = built.wrapper(batch)
     h.remove()
