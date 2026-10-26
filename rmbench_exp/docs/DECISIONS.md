@@ -23,6 +23,9 @@
    第 2 步脚本会检查位姿后 4 维是否为单位四元数。
 8. **图像**：一律用 `decode_image_bit`；之后不做任何颜色转换。训练、VTT、推理共用 `image.to_model_input`（INTER_LINEAR 缩放 + ImageNet 归一化）。
 9. **留出集**：每个任务最后 2 条演示（按编号）不参加训练、统计量和 VTT，用于开环测试。
+9b. **样本按帧均匀抽取（已确认，与 LiLa-WAM 原做法一致）**。各任务的训练量与其总帧数成正比：
+    `blocks_ranking_try` 约占 22%，`observe_and_pickup` 约占 2%（第 2 步报告）。报告中需写明这一占比，
+    分析短任务的成功率时要考虑训练量少这一因素。
 10. **统计文件格式**：仍用主项目要求的顶层键 `robotwin2`（`VLAWrapper.load_norm_stats` 写死了这个键），`meta.dataset = "rmbench"` 注明来源。
 
 ## 模型与训练
