@@ -35,7 +35,13 @@ bash xpolicylab_adapter/LiLa_WAM/install.sh                     # 第 9 步评�
 # B. RMBench：仿真评测客户端（按 RMBench README）
 conda create -n RMBench python=3.10 -y && conda activate RMBench
 cd ~/lilawam/RMBench && git submodule update --init --recursive XPolicyLab
+# CuRobo 需要 CUDA 编译器；系统没有时装进环境（与 RoboTwin 环境相同的组合；系统 gcc 过新时必须用 conda 的 gcc 11）
+conda install -y -c conda-forge cuda-nvcc=12.1.105 cuda-cudart-dev=12.1.105 gcc_linux-64=11.4.0 gxx_linux-64=11.4.0
+conda deactivate && conda activate RMBench && export CUDA_HOME=$CONDA_PREFIX
 bash scripts/_install.sh && bash scripts/_download_assets.sh && bash scripts/_download_data.sh
+# _install.sh 之后修正版本冲突（RMBench 固定 scipy 1.10.1，需要 numpy 1.x）
+pip install "numpy==1.26.4" "opencv-python-headless==4.10.0.84" && pip check
+python -c "import sapien, mplib, curobo; print('RMBench OK')"
 export RMBENCH_ROOT=$PWD RMBENCH_DATA=$PWD/data/demo_clean
 ```
 DINOv3 权重放在 `LiLa-WAM/dinov3_pretrain/dinov3-vitl16-pretrain-lvd1689m`（与主项目相同）。
