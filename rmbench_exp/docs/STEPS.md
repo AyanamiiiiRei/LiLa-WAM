@@ -19,19 +19,27 @@
 
 ---
 
-## 1. 准备环境
+## 1. 准备环境（两个独立的 conda 环境）
+
+⚠ RMBench 的 `scripts/_install.sh` **不会创建环境**，它把包装进当前激活的环境，并且固定了 `torch==2.4.1`、
+`huggingface_hub==0.25.0` 等版本。必须先创建并激活 `RMBench` 环境再运行它，否则会破坏 LiLaWAM 环境。
 
 ```bash
-# RMBench（仿真评测环境），按其 README
-git clone --recurse-submodules https://github.com/RoboTwin-Platform/RMBench.git
-cd RMBench && bash scripts/_install.sh && bash scripts/_download_assets.sh && bash scripts/_download_data.sh
-export RMBENCH_ROOT=$PWD RMBENCH_DATA=$PWD/data/demo_clean
+# A. LiLaWAM：训练与策略服务器（按 LiLa-WAM README）
+conda create -n LiLaWAM python=3.10 -y && conda activate LiLaWAM
+pip install torch==2.7.1 torchvision==0.22.1 --index-url https://download.pytorch.org/whl/cu128
+pip install transformers==5.0.0rc0 omegaconf accelerate h5py
+pip install scipy opencv-python tqdm matplotlib pytest          # rmbench_exp 额外需要
+bash xpolicylab_adapter/LiLa_WAM/install.sh                     # 第 9 步评测时需要（XPolicyLab，不改动已有包）
 
-# LiLa-WAM 环境（另一个 conda 环境），在其基础上：
-pip install h5py omegaconf scipy opencv-python tqdm matplotlib pytest
-# DINOv3 权重放在 LiLa-WAM/dinov3_pretrain/dinov3-vitl16-pretrain-lvd1689m（与主项目相同）
-cd LiLa-WAM/rmbench_exp && python -m pytest tests -q     # 数据通路自检
+# B. RMBench：仿真评测客户端（按 RMBench README）
+conda create -n RMBench python=3.10 -y && conda activate RMBench
+cd ~/lilawam/RMBench && git submodule update --init --recursive XPolicyLab
+bash scripts/_install.sh && bash scripts/_download_assets.sh && bash scripts/_download_data.sh
+export RMBENCH_ROOT=$PWD RMBENCH_DATA=$PWD/data/demo_clean
 ```
+DINOv3 权重放在 `LiLa-WAM/dinov3_pretrain/dinov3-vitl16-pretrain-lvd1689m`（与主项目相同）。
+自检：`conda activate LiLaWAM && cd LiLa-WAM/rmbench_exp && python -m pytest tests -q`。
 
 ## 2. 检查实际数据
 
