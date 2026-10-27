@@ -130,6 +130,10 @@ TEST_NUM=100 bash XPolicyLab/policy/LiLa_WAM/eval.sh RMBench cover_blocks baseli
 - 机器人必须是 `aloha_agilex`，动作类型必须是 `joint`，适配器会检查。
 - 每条评测记录写入 `runs/<run>/rmbench_eval/ckpt_<步数>/episodes.jsonl`；视频在 RMBench 的 `eval_result/` 下。
 - `TEST_NUM` 默认 100（RMBench 评测脚本的默认值）；请与 RMBench 论文的协议核对。
+- **全部任务（后台运行、可续跑）**：`bash scripts/step09_eval_all.sh baseline-seed0 50`；
+  进度 `tail -f runs/baseline-seed0/rmbench_eval/eval_all.log`；当前任务结束后停止 `touch runs/baseline-seed0/rmbench_eval/STOP_EVAL`；
+  再次运行同一命令会跳过已完成的任务。
+- 每条评测的策略视角录像（头部相机）、状态和动作保存在 `rmbench_eval/ckpt_<步数>/policy_view/`，用于失败分析。
 - 不同模型使用**相同的种子参数**（第 6 个参数），RMBench 会生成相同的测试场景序列，从而可以做配对比较。
 
 ## 10. 对照实验
