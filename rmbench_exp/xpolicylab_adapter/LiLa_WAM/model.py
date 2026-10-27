@@ -70,6 +70,13 @@ class Model(ModelTemplate):
 
         self.log_dir = self.run_dir / "rmbench_eval" / f"ckpt_{self.policy.checkpoint_step}"
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        # Policy-view recording: the head-camera frames the model actually receives (RMBench's own
+        # eval video is a third-person camera), plus states and executed actions, per episode.
+        self.record = bool(model_cfg.get("record_policy_view", True))
+        self.rec_dir = self.log_dir / "policy_view"
+        self._writer = None
+        self._rec_states: list = []
+        self._rec_actions: list = []
         self.task = None
         self.case: dict = {}
         self._reset_counters()
@@ -118,9 +125,46 @@ class Model(ModelTemplate):
     def reset(self):
         self.policy.reset()
         self._reset_counters()
+        self._close_recording(None)          # an episode that ended without on_trial_end
+
+    # ---------------------------------------------------------- recording
+    def _rec_name(self, seed) -> str:
+        return f"{self.task}_seed{seed}"
+
+    def _record_frame(self, rgb: np.ndarray, state: np.ndarray) -> None:
+        if not self.record:
+            return
+        import cv2
+        if self._writer is None:
+            self.rec_dir.mkdir(parents=True, exist_ok=True)
+            h, w = rgb.shape[:2]
+            self._tmp_path = self.rec_dir / f"_recording_{os.getpid()}.mp4"
+            self._writer = cv2.VideoWriter(str(self._tmp_path), cv2.VideoWriter_fourcc(*"mp4v"), 15, (w, h))
+        frame = cv2.cvtColor(np.ascontiguousarray(rgb), cv2.COLOR_RGB2BGR)   # VideoWriter expects BGR
+        cv2.putText(frame, f"t={self.n_steps}", (4, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        self._writer.write(frame)
+        self._rec_states.append(state)
+
+    def _close_recording(self, seed) -> None:
+        if self._writer is None:
+            self._rec_states, self._rec_actions = [], []
+            return
+        self._writer.release()
+        self._writer = None
+        if seed is None:                       # incomplete episode: discard
+            self._tmp_path.unlink(missing_ok=True)
+        else:
+            name = self._rec_name(seed)
+            os.replace(self._tmp_path, self.rec_dir / f"{name}.mp4")
+            np.savez_compressed(self.rec_dir / f"{name}.npz",
+                                states=np.asarray(self._rec_states, np.float32),
+                                actions=np.asarray(self._rec_actions, np.float32))
+        self._rec_states, self._rec_actions = [], []
 
     def update_obs(self, obs):
-        self.policy.observe(self._state_vector(obs), self._rgb(obs))
+        state, rgb = self._state_vector(obs), self._rgb(obs)
+        self.policy.observe(state, rgb)
+        self._record_frame(rgb, state)
         self.n_steps += 1
 
     def update_obs_batch(self, obs_list):
@@ -129,6 +173,8 @@ class Model(ModelTemplate):
     def get_action(self):
         chunk = self.policy.predict_chunk(self.gen)
         self.n_chunks += 1
+        if self.record:
+            self._rec_actions.extend(chunk[: self.horizon])   # may run past the episode end
         return self._action_dicts(chunk[: self.horizon])
 
     def get_action_batch(self, env_idx_list=None):
@@ -142,5 +188,8 @@ class Model(ModelTemplate):
                "run_dir": str(self.run_dir), "ckpt_step": self.policy.checkpoint_step,
                "noise_seed": self.cfg.get("noise_seed"), "eval_seed_arg": self.cfg.get("seed"),
                "time": time.strftime("%Y-%m-%d %H:%M:%S")}
+        if self.record and self._writer is not None:
+            rec["policy_view"] = str(self.rec_dir / f"{self._rec_name(rec['seed'])}.mp4")
+        self._close_recording(rec["seed"])
         with open(self.log_dir / "episodes.jsonl", "a") as f:
             f.write(json.dumps(rec) + "\n")

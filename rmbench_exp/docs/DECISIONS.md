@@ -78,6 +78,11 @@ R2. **开环测试（20 条留出演示，每 16 步预测一次）**：手臂�
     ⚠ 这假设一次 `take_action` 对应数据中的一帧；第 7 步开环测试和评测视频可以帮助核实。
 16. RMBench 只在 `_result.txt` 写总成功率；适配器通过 `on_trial_end` 把每条评测（任务、种子、是否成功、步数）写入 `episodes.jsonl`，用于置信区间和配对检验。
 
+17b. **RMBench 的评测视频是第三人称相机**（`_base_task.py` 第 1539 行写入 `third_view_rgb`），不是策略看到的头部相机；
+    训练数据的 `video/*.mp4` 则是头部相机，两者不能直接对比。适配器默认（`record_policy_view: true`）把策略实际收到的
+    头部相机画面、状态和执行的动作逐条保存到 `runs/<run>/rmbench_eval/ckpt_<step>/policy_view/<任务>_seed<种子>.mp4/.npz`，
+    用于失败原因分析。
+
 ## 尚未完成
 
 17. ⚠ `rmbench_lila/tasks.py` 中各任务"需要记住什么"是根据任务说明写的初稿，需要读 `envs/<任务>.py` 核实。

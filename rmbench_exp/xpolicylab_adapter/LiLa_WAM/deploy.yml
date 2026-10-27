@@ -20,3 +20,4 @@ run_dir: null            # null -> <rmbench_exp_root>/runs/<ckpt_name>
 checkpoint: latest       # "latest", a step number, or a .pt path
 execution_horizon: null  # null -> common.action_execution_horizon of the run (16)
 noise_seed: 0            # seeds the flow-matching noise for reproducible rollouts
+record_policy_view: true # save the head-camera frames the policy sees (+ states/actions) per episode
