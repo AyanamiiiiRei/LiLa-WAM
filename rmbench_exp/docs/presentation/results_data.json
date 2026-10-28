@@ -1,0 +1,293 @@
+{
+  "experiment": {
+    "model": "LiLa-WAM (no memory), frozen DINOv3 ViT-L/16 + DiT action expert, 211.9M trainable",
+    "checkpoint_step": 85928,
+    "train_data": "RMBench demo_clean, aloha_agilex, 48 demos/task (2 held out), 10 tasks",
+    "training": "85,928 optimizer steps, batch 64, lr 2e-4->5e-5 cosine, bf16, 18.4 h, 0.77 s/step (matched to RoboTwin 'visual' run)",
+    "eval": "50 episodes/task, eval seed 0, joint actions, 2026-10-27 17:07 -> 10-28 08:56 (15.8 h)",
+    "baseline_source": "RMBench paper arXiv 2603.01229 Table I (100 episodes/task, 9 tasks; no place_block_mat)"
+  },
+  "per_task": [
+    {
+      "task": "observe_and_pickup",
+      "type": "M1",
+      "successes": 2,
+      "n": 50,
+      "rate": 0.04,
+      "ci95_pct": [
+        1.1,
+        13.5
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 9,
+        "X-VLA": 9,
+        "MemoryVLA": 0,
+        "Mem-0": 4
+      },
+      "chance_if_guessing": 0.2
+    },
+    {
+      "task": "put_back_block",
+      "type": "M1",
+      "successes": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95_pct": [
+        0,
+        7.1
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 11,
+        "X-VLA": 18,
+        "MemoryVLA": 50,
+        "Mem-0": 90
+      },
+      "chance_if_guessing": 0.25
+    },
+    {
+      "task": "rearrange_blocks",
+      "type": "M1",
+      "successes": 8,
+      "n": 50,
+      "rate": 0.16,
+      "ci95_pct": [
+        8.3,
+        28.5
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 13,
+        "X-VLA": 13,
+        "MemoryVLA": 22,
+        "Mem-0": 89
+      },
+      "chance_if_guessing": 0.5
+    },
+    {
+      "task": "swap_blocks",
+      "type": "M1",
+      "successes": 7,
+      "n": 50,
+      "rate": 0.14,
+      "ci95_pct": [
+        7.0,
+        26.2
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 24,
+        "X-VLA": 16,
+        "MemoryVLA": 17,
+        "Mem-0": 67
+      },
+      "chance_if_guessing": null
+    },
+    {
+      "task": "swap_T",
+      "type": "M1",
+      "successes": 3,
+      "n": 50,
+      "rate": 0.06,
+      "ci95_pct": [
+        2.1,
+        16.2
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 15,
+        "X-VLA": 3,
+        "MemoryVLA": 9,
+        "Mem-0": 14
+      },
+      "chance_if_guessing": null
+    },
+    {
+      "task": "place_block_mat",
+      "type": "M1",
+      "successes": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95_pct": [
+        0,
+        7.1
+      ],
+      "paper_baselines_pct": null,
+      "chance_if_guessing": null
+    },
+    {
+      "task": "battery_try",
+      "type": "Mn",
+      "successes": 20,
+      "n": 50,
+      "rate": 0.4,
+      "ci95_pct": [
+        27.6,
+        53.8
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 16,
+        "X-VLA": 26,
+        "MemoryVLA": 25,
+        "Mem-0": 28
+      },
+      "chance_if_guessing": null
+    },
+    {
+      "task": "blocks_ranking_try",
+      "type": "Mn",
+      "successes": 11,
+      "n": 50,
+      "rate": 0.22,
+      "ci95_pct": [
+        12.8,
+        35.2
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 6,
+        "X-VLA": 1,
+        "MemoryVLA": 12,
+        "Mem-0": 18
+      },
+      "chance_if_guessing": 0.2
+    },
+    {
+      "task": "cover_blocks",
+      "type": "Mn",
+      "successes": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95_pct": [
+        0,
+        7.1
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 0,
+        "X-VLA": 2,
+        "MemoryVLA": 40,
+        "Mem-0": 68
+      },
+      "chance_if_guessing": null
+    },
+    {
+      "task": "press_button",
+      "type": "Mn",
+      "successes": 0,
+      "n": 50,
+      "rate": 0.0,
+      "ci95_pct": [
+        0,
+        7.1
+      ],
+      "paper_baselines_pct": {
+        "Pi0.5": 0,
+        "X-VLA": 0,
+        "MemoryVLA": 0,
+        "Mem-0": 0
+      },
+      "chance_if_guessing": null
+    }
+  ],
+  "averages_pct": {
+    "ours": {
+      "M1_5tasks": 8.0,
+      "Mn": 15.5,
+      "all9": 11.3
+    },
+    "Pi0.5": {
+      "M1": 14.4,
+      "Mn": 5.5,
+      "all9": 10.4
+    },
+    "X-VLA": {
+      "M1": 11.8,
+      "Mn": 7.3,
+      "all9": 9.8
+    },
+    "MemoryVLA": {
+      "M1": 19.6,
+      "Mn": 19.3,
+      "all9": 19.4
+    },
+    "Mem-0": {
+      "M1": 52.8,
+      "Mn": 28.5,
+      "all9": 42.0
+    }
+  },
+  "failure_classification": {
+    "swap_blocks": {
+      "n": 43,
+      "memory": 43,
+      "manipulation": 0,
+      "other": 0,
+      "basis": "all trajectories"
+    },
+    "blocks_ranking_try": {
+      "n": 39,
+      "memory": 39,
+      "manipulation": 0,
+      "other": 0,
+      "basis": "all trajectories"
+    },
+    "put_back_block": {
+      "n": 50,
+      "memory": 37,
+      "manipulation": 10,
+      "other": 3,
+      "basis": "all trajectories"
+    },
+    "observe_and_pickup": {
+      "n": 48,
+      "memory": 36,
+      "manipulation": 8,
+      "other": 4,
+      "basis": "all videos"
+    },
+    "rearrange_blocks": {
+      "n": 42,
+      "memory": 29,
+      "manipulation": 12,
+      "other": 1,
+      "basis": "all trajectories"
+    },
+    "battery_try": {
+      "n": 30,
+      "memory": 0,
+      "manipulation": 22,
+      "other": 8,
+      "basis": "all videos"
+    }
+  },
+  "failure_totals": {
+    "checked_failures": 252,
+    "memory": 184,
+    "manipulation": 52,
+    "other": 16,
+    "memory_share": 0.73,
+    "memory_share_excl_battery_try": 0.83
+  },
+  "chance_level_evidence": {
+    "observe_and_pickup_reached_correct_object": {
+      "value": 0.2,
+      "chance": 0.2
+    },
+    "put_back_block_returned_to_original_mat": {
+      "value": 0.21,
+      "chance": 0.25
+    },
+    "rearrange_blocks_chose_correct_block": {
+      "value": 0.62,
+      "chance": 0.5
+    }
+  },
+  "swap_blocks_breakdown": {
+    "finished_swap_then_restarted": 22,
+    "pressed_after_0_moves": 1,
+    "pressed_after_1_move": 9,
+    "pressed_after_2_moves": 6,
+    "pressed_after_4_or_5_moves": 5
+  },
+  "rearrange_blocks_breakdown": {
+    "picked_block_just_placed": 19,
+    "pressed_button_2_or_3_times": 10,
+    "press_too_shallow": 12,
+    "other": 1
+  }
+}
