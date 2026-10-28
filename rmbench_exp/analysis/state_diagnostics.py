@@ -104,6 +104,61 @@ def observe_and_pickup(items) -> dict:
             "chance_random_object": 0.2}
 
 
+def _press_dips(z: np.ndarray, th: float = 0.935) -> int:
+    """Number of times the left EE goes below `th` (one per button press in the demos)."""
+    return int(sum(1 for t in range(1, len(z)) if z[t] < th <= z[t - 1]))
+
+
+def rearrange_blocks(items) -> dict:
+    """envs/rearrange_blocks.py: right arm moves the middle block to the empty mat, left arm presses
+    the button ONCE (press_cnt > 1 fails), then the right arm must move the block that started on a mat
+    (not the one it just placed) to the middle. After phase 1 both mats look the same."""
+    c = collections.Counter()
+    for _, seed, e, s in items:
+        closed = s[:, 15] < 0.5
+        grasps = [(t, float(s[t, 8])) for t in _edges(closed)]
+        releases = [(t, float(s[t, 8])) for t in _falling(closed)]
+        t2 = grasps[1][0] if len(grasps) > 1 else len(s)
+        dips = _press_dips(s[:t2, 2])
+        if e["success"]:
+            c["success"] += 1
+        elif len(grasps) < 2 or not releases:
+            c["no second pick"] += 1
+        elif abs(grasps[1][1] - releases[0][1]) < 0.05:
+            c["memory: picked the block it just placed"] += 1
+        elif dips > 1:
+            c["memory: pressed the button again (press_cnt>1)"] += 1
+        elif dips == 0:
+            c["manipulation: press too shallow"] += 1
+        else:
+            c["other"] += 1
+    return dict(c)
+
+
+def swap_blocks(items) -> dict:
+    """envs/swap_blocks.py: 3 moves through the empty basket, then press the button (y < -0.24).
+    The scene after the 3 moves looks like the start, and after move 1 like another start."""
+    c = collections.Counter()
+    for _, seed, e, s in items:
+        ev = []
+        for o, gi in ((0, 7), (8, 15)):
+            for t in _edges(s[:, gi] < 0.5):
+                ev.append((t, "press" if s[t, o + 1] < -0.24 else "move"))
+        seq = [k for _, k in sorted(ev)]
+        n = seq.index("press") if "press" in seq else len(seq)
+        if e["success"]:
+            c["success"] += 1
+        elif "press" not in seq and n > 3:
+            c["memory: finished the swap and started again"] += 1
+        elif n < 3:
+            c["memory: pressed after only %d move(s)" % n] += 1
+        elif n > 3:
+            c["memory: pressed after %d moves" % n] += 1
+        else:
+            c["3 moves + press, still failed"] += 1
+    return dict(sorted(c.items()))
+
+
 def grasp_counts(items) -> dict:
     """Generic: grasps per arm and longest idle stretch, split by success."""
     rows = {True: [], False: []}
@@ -138,6 +193,10 @@ def main():
             report[task]["put_back_block"] = put_back_block(items)
         if task == "observe_and_pickup":
             report[task]["observe_and_pickup"] = observe_and_pickup(items)
+        if task == "rearrange_blocks":
+            report[task]["rearrange_blocks"] = rearrange_blocks(items)
+        if task == "swap_blocks":
+            report[task]["swap_blocks"] = swap_blocks(items)
     out = args.ckpt_dir / "state_diagnostics.json"
     out.write_text(json.dumps(report, indent=2, ensure_ascii=False))
     print(json.dumps(report, indent=2, ensure_ascii=False))
