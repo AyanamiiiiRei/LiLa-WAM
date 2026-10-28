@@ -16,6 +16,8 @@
 | `figures/fig4_example_observe_and_pickup.png` | 示例：目标只出现约 10 帧，之后抓错物体 |
 | `figures/fig5_example_swap_blocks.png` | 示例：交换完成后画面与初始相同，于是重新开始交换 |
 | `figures/fig6_example_rearrange_blocks.png` | 示例：第一阶段后两块垫子看起来一样，于是搬错方块 |
+| `figures/vtt_tsne.png`（fig7） | 480 条演示的 VTT t-SNE + 各任务 VTT 范数与一致性 |
+| `figures/vtt_first_last.png`（fig8） | 弱 VTT 任务与强 VTT 任务的首帧/末帧对比 |
 
 ## 1. 一句话结论
 
@@ -106,8 +108,9 @@ battery_try 后为 83%），凡是依赖过去信息的选择，正确率都落�
   "无记忆也能完成 M(n) 任务"的反例，其失败也以操作为主（22/30 电池掉落或放偏）。
 - **按按钮过浅**：put_back_block 和 rearrange_blocks 都有按钮没按到位的情况（操作问题，共 22 条），与记忆问题分开统计。
 - **swap_T 的朝向误差**无法完全区分记忆与精度；**place_block_mat** 以操作失败为主。
-- **VTT 任务表征弱**：place_block_mat、swap_T、cover_blocks 结束画面与初始接近，LiLa-WAM 用"末帧 − 首帧"作任务表征，
-  对这三个任务信息很少，任务指定可能不清。
+- **VTT 任务表征幅度小**：place_block_mat、swap_T、cover_blocks 结束画面与初始几乎一样（fig8），LiLa-WAM 用
+  "末帧 − 首帧"的 CLS 差作任务表征，这三个任务的向量范数只有 1.2–2.1（其余 5.8–12.3），演示间一致性也低（0.47–0.73）。
+  但 t-SNE（fig7）中它们仍各成一簇，单条演示判别任务的留一准确率 94–100%，所以任务身份仍可区分，影响有限。
 - **统计量**：每任务 50 条（论文 100 条）；基线来自论文，非本实验复现。
 - **约 21% 的操作失败**说明每任务 48 条演示的数据量会影响精度；尚未做的对照实验 A（RoboTwin 50 条演示）用于判断这一部分。
 
@@ -128,5 +131,5 @@ battery_try 后为 83%），凡是依赖过去信息的选择，正确率都落�
 6. **失败原因**：fig2，73% 记忆 / 21% 操作（§4）
 7. **证据一：选择 = 随机猜测**：fig3 + fig4（§5.1）
 8. **证据二：不知道进行到哪一步**：fig5 + fig6，swap_blocks 43/43（§5.2）
-9. **局限**：battery_try、按钮过浅、VTT 弱、样本量（§6）
+9. **局限**：battery_try、按钮过浅、VTT 幅度小（可放 fig7/fig8）、样本量（§6）
 10. **结论与下一步**：§1 + §7
