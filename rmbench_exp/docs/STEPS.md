@@ -5,17 +5,17 @@
 
 ## 进度
 
-- [ ] 1 准备环境
-- [ ] 2 检查实际数据，核对 `rmbench_lila/tasks.py` 中的记忆说明
-- [ ] 3 （已由代码完成）数据加载：`schema.py` + `episodes.py` + `data/`
-- [ ] 4 归一化统计量
-- [ ] 5 VTT 及任务相似度
-- [ ] 6 确认训练配置（尤其 `feat_layers`、batch size）
-- [ ] 7 训练前检查：color / actions / shapes / overfit + 开环测试
-- [ ] 8 训练：baseline，可选 no_foresight
-- [ ] 9 安装适配器并在 RMBench 中评测
+- [x] 1 准备环境
+- [x] 2 检查实际数据，核对 `rmbench_lila/tasks.py` 中的记忆说明
+- [x] 3 （已由代码完成）数据加载：`schema.py` + `episodes.py` + `data/`
+- [x] 4 归一化统计量
+- [x] 5 VTT 及任务相似度
+- [x] 6 确认训练配置（尤其 `feat_layers`、batch size）
+- [x] 7 训练前检查：color / actions / shapes / overfit + 开环测试
+- [x] 8 训练：baseline，可选 no_foresight
+- [x] 9 安装适配器并在 RMBench 中评测
 - [ ] 10 对照实验 A / B / C
-- [ ] 11 结果分析：置信区间、失败原因、M1 vs Mn
+- [ ] 11 结果分析：置信区间、失败原因、M1 vs Mn（成功率与自动诊断已完成，见 RESULTS.md；视频分类待做）
 
 ---
 
@@ -158,6 +158,7 @@ python train.py --config rmbench_exp/configs/control_a/robotwin_50clean.yaml --n
 ```bash
 python analysis/results.py table   runs/baseline-seed0                         # 每任务成功率 + 95% CI，M1/Mn 汇总
 python analysis/results.py compare runs/baseline-seed0 runs/state_hist8-seed0   # 同种子配对比较（McNemar）
+python analysis/state_diagnostics.py runs/baseline-seed0/rmbench_eval/ckpt_<步数>  # 从状态记录自动诊断
 python analysis/failure_labels.py init      runs/baseline-seed0/rmbench_eval/ckpt_<步数>
 # 看视频，在 failure_labels.csv 中填 label：memory / manipulation / stuck / other
 python analysis/failure_labels.py summarize runs/baseline-seed0/rmbench_eval/ckpt_<步数>
