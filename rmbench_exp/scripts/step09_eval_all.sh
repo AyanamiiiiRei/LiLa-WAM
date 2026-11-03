@@ -35,8 +35,9 @@ GPU="${GPU:-0}"
 CKPT_STEP="$(sed -E 's/step_0*([0-9]+)\.pt/\1/' "${SUB}/runs/${RUN}/checkpoints/latest.txt")"
 OUT="${SUB}/runs/${RUN}/rmbench_eval"
 mkdir -p "${OUT}"
-LOG="${OUT}/eval_all.log"
-PIDFILE="${OUT}/eval_all.pid"
+TAG="${LILA_EVAL_TAG:+_${LILA_EVAL_TAG}}"          # stage-memory runs: e.g. _M-empty
+LOG="${OUT}/eval_all${TAG}.log"
+PIDFILE="${OUT}/eval_all${TAG}.pid"
 
 if [[ "${_EVAL_ALL_CHILD:-}" != "1" ]]; then
     if [[ -f "${PIDFILE}" ]] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
@@ -56,7 +57,7 @@ EOF
 fi
 
 done_count() {   # unique seeds already evaluated for a task with this checkpoint
-    local f="${OUT}/ckpt_${CKPT_STEP}/episodes.jsonl"
+    local f="${OUT}/ckpt_${CKPT_STEP}${TAG}/episodes.jsonl"
     [[ -f "$f" ]] || { echo 0; return; }
     python - "$f" "$1" <<'PY'
 import json, sys

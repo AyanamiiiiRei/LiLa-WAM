@@ -56,7 +56,9 @@ class Model(ModelTemplate):
         run_dir = model_cfg.get("run_dir") or (root / "runs" / str(model_cfg["ckpt_name"]))
         self.run_dir = Path(run_dir)
         device = model_cfg.get("device", "cuda:0")
-        self.policy = LiLaWAMPolicy.from_run(self.run_dir, str(model_cfg.get("checkpoint", "latest")), device)
+        self.policy = LiLaWAMPolicy.from_run(self.run_dir, str(model_cfg.get("checkpoint", "latest")), device,
+                                             memory_override=self._opt(model_cfg, "memory_override", "LILA_MEMORY_OVERRIDE"))
+        self.stages_done = None      # from obs["oracle"] (stage-memory runs, eval launcher with oracle)
         pc = self.policy.cfg
         self.state_layout = get_state_layout(pc.rmbench.state_layout)
         self.action_layout = get_action_layout(pc.rmbench.action_layout)
@@ -68,7 +70,8 @@ class Model(ModelTemplate):
             self.gen = torch.Generator(device=device if str(device).startswith("cuda") else "cpu")
             self.gen.manual_seed(int(seed))
 
-        self.log_dir = self.run_dir / "rmbench_eval" / f"ckpt_{self.policy.checkpoint_step}"
+        tag = self._opt(model_cfg, "eval_tag", "LILA_EVAL_TAG")   # e.g. "M-empty": separate results folder
+        self.log_dir = self.run_dir / "rmbench_eval" / (f"ckpt_{self.policy.checkpoint_step}" + (f"_{tag}" if tag else ""))
         self.log_dir.mkdir(parents=True, exist_ok=True)
         # Policy-view recording: the head-camera frames the model actually receives (RMBench's own
         # eval video is a third-person camera), plus states and executed actions, per episode.
@@ -84,6 +87,12 @@ class Model(ModelTemplate):
             self._set_task(model_cfg["task_name"])
         print(f"[LiLa_WAM] ready: run={self.run_dir} ckpt_step={self.policy.checkpoint_step} "
               f"horizon={self.horizon} task={self.task}")
+
+    @staticmethod
+    def _opt(cfg, key, env):
+        """deploy.yml value, else the environment variable (set by scripts/step24_eval_with_oracle.sh)."""
+        v = cfg.get(key) or os.environ.get(env) or None
+        return None if v in ("", "null", "none", "None") else v
 
     # ------------------------------------------------------------ conversion
     def _state_vector(self, obs) -> np.ndarray:
@@ -124,6 +133,7 @@ class Model(ModelTemplate):
 
     def reset(self):
         self.policy.reset()
+        self.stages_done = None
         self._reset_counters()
         self._close_recording(None)          # an episode that ended without on_trial_end
 
@@ -163,6 +173,9 @@ class Model(ModelTemplate):
 
     def update_obs(self, obs):
         state, rgb = self._state_vector(obs), self._rgb(obs)
+        oracle = obs.get("oracle") if isinstance(obs, dict) else None
+        if oracle is not None:
+            self.stages_done = int(oracle.get("stages_done", 0))
         self.policy.observe(state, rgb)
         self._record_frame(rgb, state)
         self.n_steps += 1
@@ -171,7 +184,11 @@ class Model(ModelTemplate):
         raise NotImplementedError(self._error_msg("LiLa_WAM keeps per-episode history; set eval_batch: false"))
 
     def get_action(self):
-        chunk = self.policy.predict_chunk(self.gen)
+        if self.policy.memory is not None and self.policy.memory.mode == "stage" and self.stages_done is None \
+                and not self.policy.memory.force_empty:
+            raise RuntimeError(self._error_msg("stage-memory run but no obs['oracle']: "
+                                               "evaluate with scripts/step24_eval_with_oracle.sh"))
+        chunk = self.policy.predict_chunk(self.gen, stages_done=self.stages_done)
         self.n_chunks += 1
         if self.record:
             self._rec_actions.extend(chunk[: self.horizon])   # may run past the episode end
@@ -187,6 +204,9 @@ class Model(ModelTemplate):
                "wall_s": round(time.time() - self.t_start, 1),
                "run_dir": str(self.run_dir), "ckpt_step": self.policy.checkpoint_step,
                "noise_seed": self.cfg.get("noise_seed"), "eval_seed_arg": self.cfg.get("seed"),
+               "stages_done": self.stages_done,
+               "memory_writes": list(self.policy.memory.log) if self.policy.memory is not None else None,
+               "memory_override": self._opt(self.cfg, "memory_override", "LILA_MEMORY_OVERRIDE"),
                "time": time.strftime("%Y-%m-%d %H:%M:%S")}
         if self.record and self._writer is not None:
             rec["policy_view"] = str(self.rec_dir / f"{self._rec_name(rec['seed'])}.mp4")

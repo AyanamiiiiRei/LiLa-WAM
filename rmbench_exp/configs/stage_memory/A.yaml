@@ -1,0 +1,30 @@
+# Stage-memory experiment (docs/STAGE_MEMORY.md), group A: original LiLa-WAM, swap_blocks only.
+# F and M inherit this file, so the three groups differ ONLY in model.stage_memory.
+_base_: ../base.yaml
+experiment:
+  name: sm_A
+  seed: 0
+rmbench:
+  tasks: [swap_blocks]
+  holdout_per_task: 5               # 45 training / 5 held-out demos (plan section 3)
+paths:
+  norm_stats: artifacts/stage_memory/swap_blocks/stats.json      # recomputed on the 45 demos (step 4)
+dataset:
+  task_cond_dir: artifacts/stage_memory/swap_blocks/vtt           # recomputed on the 45 demos (step 5)
+  # (single task: the VTT token is the same vector in every sample; kept so the warm start loads strictly)
+  stage_memory:
+    boundaries: artifacts/stage_memory/swap_blocks/boundaries_gt.json
+    cls_dir: artifacts/stage_memory/swap_blocks/cls
+    jitter_p: 0.5                   # move each boundary by +-1 chunk with prob 0.5 (training only)
+model:
+  variant: lila_wam
+  stage_memory:
+    enabled: false
+training:
+  # Fill in from the RoboTwin fine-tuning run (plan section 5). ??? = must be set; training refuses to start.
+  learning_rate: ???
+  lr_min: ???
+  total_steps: ???
+  batch_size: ???
+  grad_accum_steps: 1
+  save_every_steps: 1000            # several checkpoints; the final one is chosen on held-out "stage 4" L_fm

@@ -1,0 +1,12 @@
+# Group F: one memory slot that always holds the CLS of the episode's frame 0 (first = last = frame 0).
+_base_: A.yaml
+experiment:
+  name: sm_F
+dataset:
+  features: [state, action_chunk, image, future_image, task_cond, stage_memory]
+model:
+  variant: lila_wam_stage_memory
+  stage_memory:
+    enabled: true
+    mode: first_frame
+    num_slots: 1

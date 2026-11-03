@@ -26,6 +26,8 @@ PATH_KEYS = (
     "model.vision_encoder.checkpoint_path",
     "paths.norm_stats",
     "experiment.output_root",
+    "dataset.stage_memory.boundaries",
+    "dataset.stage_memory.cls_dir",
 )
 
 _RESOLVERS_REGISTERED = False
@@ -127,6 +129,13 @@ def validate(cfg: DictConfig) -> None:
     for need in ("state", "action_chunk", "image"):
         if need not in feats:
             errs.append(f"dataset.features must contain {need!r}")
+
+    sm_on = bool(OmegaConf.select(cfg, "model.stage_memory.enabled", default=False))
+    variant = cfg.model.get("variant", "lila_wam")
+    if sm_on != (variant == "lila_wam_stage_memory"):
+        errs.append("model.stage_memory.enabled=true <=> model.variant=lila_wam_stage_memory")
+    if sm_on != ("stage_memory" in feats):
+        errs.append("model.stage_memory.enabled and the 'stage_memory' dataset feature must agree")
 
     if errs:
         raise ValueError("Invalid config:\n  - " + "\n  - ".join(errs))

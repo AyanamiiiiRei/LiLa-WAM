@@ -1,0 +1,15 @@
+# Group M: stage memory. swap_blocks has 4 stages (move 1, move 2, move 3, press); the last one
+# ends the task, so N = 3 slots. Training boundaries: boundaries_gt.json (robot-state events);
+# evaluation: simulator oracle (same definition). M-empty = this checkpoint evaluated with
+# memory never written (scripts/step24_eval_with_oracle.sh <run> 100 0 empty).
+_base_: A.yaml
+experiment:
+  name: sm_M
+dataset:
+  features: [state, action_chunk, image, future_image, task_cond, stage_memory]
+model:
+  variant: lila_wam_stage_memory
+  stage_memory:
+    enabled: true
+    mode: stage
+    num_slots: 3

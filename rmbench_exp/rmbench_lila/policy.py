@@ -52,7 +52,8 @@ def resolve_checkpoint(run_dir: Path, checkpoint: str) -> Path:
 
 class LiLaWAMPolicy:
     def __init__(self, cfg, checkpoint_path: str | Path, norm_stats_path: str | Path,
-                 vtt_dir: str | Path | None, device: str = "cuda", dtype: torch.dtype = torch.bfloat16):
+                 vtt_dir: str | Path | None, device: str = "cuda", dtype: torch.dtype = torch.bfloat16,
+                 memory_override: str | None = None):
         self.cfg, self.device, self.dtype = cfg, device, dtype
         self.vtt_dir = Path(vtt_dir) if vtt_dir else None
         built = models.build(cfg, str(norm_stats_path), device, dtype, training=False)
@@ -61,6 +62,19 @@ class LiLaWAMPolicy:
         self.action_model.load_state_dict(ck["model_state_dict"], strict=True)
         self.model.eval().to(device, dtype)
         self.checkpoint_step = ck.get("global_step")
+
+        # Stage memory (only for runs with model.stage_memory.enabled; None otherwise, and then
+        # nothing below changes the original behaviour). memory_override="empty" = M-empty eval.
+        self.memory = None
+        if models.uses_stage_memory(cfg):
+            from .stage_memory import OnlineStageMemory
+            sm = cfg.model.stage_memory
+            if memory_override not in (None, "empty"):
+                raise ValueError(f"memory_override must be None or 'empty', got {memory_override!r}")
+            self.memory = OnlineStageMemory(int(sm.num_slots), built.dino_hidden_size,
+                                            str(sm.get("mode", "stage")), force_empty=memory_override == "empty")
+        elif memory_override is not None:
+            raise ValueError("memory_override given but this run has no stage memory")
 
         self.state_offsets = list(cfg.dataset.indices_config.state_indices)
         self.image_size = tuple(OmegaConf.to_container(cfg.dataset.image_size))
@@ -83,7 +97,7 @@ class LiLaWAMPolicy:
 
     @classmethod
     def from_run(cls, run_dir: str | Path, checkpoint: str = "latest", device: str = "cuda",
-                 dtype: torch.dtype | None = None) -> "LiLaWAMPolicy":
+                 dtype: torch.dtype | None = None, memory_override: str | None = None) -> "LiLaWAMPolicy":
         run_dir = Path(run_dir)
         cfg = OmegaConf.load(run_dir / "config.yaml")
         validate(cfg)
@@ -91,7 +105,7 @@ class LiLaWAMPolicy:
             dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
         vtt = run_dir / "vtt"
         return cls(cfg, resolve_checkpoint(run_dir, checkpoint), run_dir / "norm_stats.json",
-                   vtt if vtt.is_dir() else None, device, dtype)
+                   vtt if vtt.is_dir() else None, device, dtype, memory_override)
 
     # ----------------------------------------------------------------- episode
     def set_task(self, task: str) -> None:
@@ -108,6 +122,8 @@ class LiLaWAMPolicy:
         for t in self.state_transforms:
             t.reset()
         self.rgb = self.first_rgb = None
+        if self.memory is not None:
+            self.memory.reset()
 
     def observe(self, state: np.ndarray, rgb: np.ndarray | None = None) -> None:
         """Record one env step. ``rgb`` = decoded HxWx3 uint8 RGB (None = keep the previous one)."""
@@ -128,7 +144,8 @@ class LiLaWAMPolicy:
 
     # --------------------------------------------------------------- inference
     @torch.no_grad()
-    def predict_chunk(self, generator: torch.Generator | None = None) -> np.ndarray:
+    def predict_chunk(self, generator: torch.Generator | None = None, stages_done: int | None = None) -> np.ndarray:
+        """``stages_done``: completed-stage count from the eval oracle (stage memory only)."""
         if not self.states or self.rgb is None:
             raise RuntimeError("observe() must be called (with an image) before predict_chunk()")
         if self.cfg.model.get("use_task_cond", False) and self.task_cond is None:
@@ -138,12 +155,20 @@ class LiLaWAMPolicy:
 
         qpos = self.model.normalize_state(state)
         feats = self.model.get_vision_features(px)
+        if self.memory is not None:
+            from .stage_memory import frame_cls
+            self.memory.update(frame_cls(self.model.vision_encoder, px, self.device, self.dtype)[0], stages_done)
+            self.action_model.set_memory_input(*self.memory.tensors(self.device, self.dtype))
         x = torch.randn((1, self.chunk, self.action_dim), device=self.device, dtype=self.dtype,
                         generator=generator)
         ts = torch.linspace(0, 1, self.n_steps + 1, device=self.device, dtype=self.dtype)
-        for i in range(self.n_steps):
-            v = lila_api.predict_velocity(self.action_model, ts[i][None], x, qpos, feats, self.task_cond)
-            x = x + v * (ts[i + 1] - ts[i])
+        try:
+            for i in range(self.n_steps):
+                v = lila_api.predict_velocity(self.action_model, ts[i][None], x, qpos, feats, self.task_cond)
+                x = x + v * (ts[i + 1] - ts[i])
+        finally:
+            if self.memory is not None:
+                self.action_model.clear_memory_input()
         act = self.model.denormalize_action(x)[0].float().cpu().numpy()
         if self.smooth:
             act = bspline_smooth(act, 3, self.smooth_pts)

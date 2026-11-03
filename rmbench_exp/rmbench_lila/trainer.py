@@ -162,6 +162,8 @@ class Trainer:
         built = models.build(cfg, str(self.run_dir / "norm_stats.json"), device, dtype, training=True)
         self.model, self.action_model = built.wrapper, built.action_model
         self.action_model.to(device, dtype=dtype).train()
+        if hasattr(self.model, "trainer_callbacks"):      # e.g. per-stage loss log (stage memory)
+            self.callbacks += self.model.trainer_callbacks(self)
         n_train = sum(p.numel() for p in self.action_model.parameters() if p.requires_grad)
         logger.info(f"trainable parameters: {n_train / 1e6:.1f}M")
 
@@ -177,7 +179,7 @@ class Trainer:
 
         if init_from:
             ck = torch.load(init_from, map_location="cpu", weights_only=False)
-            self.action_model.load_state_dict(ck["model_state_dict"], strict=True)
+            models.load_init_weights(self.action_model, ck["model_state_dict"], cfg)
             logger.info(f"initialised weights from {init_from} (fresh optimizer/schedule)")
         if self.resuming:
             self._load_latest()
