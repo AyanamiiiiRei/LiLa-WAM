@@ -73,6 +73,8 @@ def main():
     models = {"M": LiLaWAMPolicy.from_run(run, "latest", args.device)}
     if args.compare:
         models["A"] = LiLaWAMPolicy.from_run(Path(args.compare), "latest", args.device)
+    for m in models.values():
+        m.set_task("swap_blocks")          # loads the task's VTT (task_cond)
 
     counts: dict = {}
     for ref in refs:
