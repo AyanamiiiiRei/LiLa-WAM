@@ -60,6 +60,7 @@
    `python scripts/step05_compute_vtt.py --config configs/stage_memory/A.yaml`
 4. 检查：`python -m pytest tests -q`；`python scripts/step23_stage_checks.py consistency --config configs/stage_memory/M.yaml`；
    过拟合（2 条演示）；显存与速度
-5. 填写 `configs/stage_memory/A.yaml` 中的 `???`（学习率、步数、batch），三组训练（`--init_from` RoboTwin checkpoint）
+5. 三组训练，热启动 `checkpoints_vla/9task_visual/checkpoint_epoch_8.pt`（RoboTwin visual，单阶段训练，没有第二阶段微调）；
+   超参数：1e-4 → 1e-5 余弦、200 步预热、8,000 步、batch 64（理由见 `configs/stage_memory/A.yaml`），三组相同
 6. 留出集按阶段 L_fm：`python scripts/step23_stage_checks.py heldout --run runs/sm_M-seed0`
 7. 闭环评测（每组 100 次，同一种子），失败分类：`python analysis/state_diagnostics.py <ckpt 目录>`

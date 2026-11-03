@@ -129,10 +129,11 @@ def cmd_shapes(cfg, args):
     h.remove()
     c = cfg.common
     q = cfg.model.action_expert.vlm_adapter_num_queries
-    expect = c.action_chunk_size + c.proprio_len + cfg.model.num_registers + int(cfg.model.use_task_cond) + q
+    n_mem = int(cfg.model.stage_memory.num_slots) if cfg.model.get("stage_memory", {}).get("enabled", False) else 0
+    expect = c.action_chunk_size + c.proprio_len + cfg.model.num_registers + int(cfg.model.use_task_cond) + q + n_mem
     print(f"\nDiT input sequence: {seen.get('x')}  expected (B, {expect}, {cfg.model.action_expert.hidden_size}) = "
           f"{c.action_chunk_size} action + {c.proprio_len} state + {cfg.model.num_registers} registers + "
-          f"{int(cfg.model.use_task_cond)} VTT + {q} visual")
+          f"{int(cfg.model.use_task_cond)} VTT + {q} visual + {n_mem} memory")
     print(f"loss {loss.item():.4f}  fm {info['loss_mse']:.4f}  ff {info['loss_future_feat']:.4f}")
     assert seen.get("x", (0, -1))[1] == expect, "unexpected token count"
 
