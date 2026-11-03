@@ -34,7 +34,8 @@ class StageMemoryFeature(Feature):
         sm, dsm = cfg.model.stage_memory, cfg.dataset.stage_memory
         self.mode = str(sm.get("mode", "stage"))
         self.n = int(sm.num_slots)
-        self.boundaries = load_boundaries(dsm.boundaries) if self.mode == "stage" else {}
+        # loaded in both modes: "first_frame" uses them only for the per-stage loss log (stage_id)
+        self.boundaries = load_boundaries(dsm.boundaries)
         self.cls_dir = Path(dsm.cls_dir)
         self.jitter_p = float(dsm.get("jitter_p", 0.0)) if train else 0.0
         self._cls: dict[str, np.ndarray] = {}
@@ -59,7 +60,7 @@ class StageMemoryFeature(Feature):
         if self.mode == "first_frame":
             out[0, 0] = out[0, 1] = cls[0]
             written = np.ones(1, bool)
-            sid = 0
+            sid = stage_index(t, self.boundaries[Path(ctx.ref.path).name])
         else:
             stages = self.boundaries[Path(ctx.ref.path).name]
             ends = jitter_ends(stages, self.n, ctx.length, self.jitter_p, rng=random)
