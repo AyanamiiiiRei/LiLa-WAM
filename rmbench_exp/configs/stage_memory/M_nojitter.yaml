@@ -1,0 +1,9 @@
+# Stage-memory experiment: group M without boundary jitter (docs/STAGE_MEMORY.md, "M0").
+# Question: does training with jittered slot-write times (jitter_p 0.5) cause the remaining
+# "press after 2 moves" failures? Everything else identical to M.yaml (same init, steps, seed).
+_base_: M.yaml
+experiment:
+  name: sm_M0
+dataset:
+  stage_memory:
+    jitter_p: 0.0
