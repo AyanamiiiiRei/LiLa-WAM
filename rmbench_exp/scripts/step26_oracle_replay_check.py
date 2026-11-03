@@ -17,14 +17,14 @@ What it does (RMBench files are not edited; nothing is written into data/):
     by a function that, instead of saving, records for that frame index: the oracle's
     stages_done (rmbench_lila/oracle.py, the same object the eval uses; created at frame 0 like
     in the eval), both EE positions and both gripper values.
-  * Compares, per episode and per move k = 1..3:
+  * Compares, per episode and per move k = 1..3, ON THE REPLAYED TRAJECTORY (the downloaded data
+    has no _traj_data, so the replay is re-planned with the demo's seed: a successful expert
+    demo of the same scene, but not frame-identical to the HDF5 file):
       oracle frame f_k   first frame at which stages_done reaches k
-      train  end  r_k    swap_blocks_event_ends on the HDF5 state (the definition used to train)
-      grid   end  g_k    boundaries_gt.json (r_k rounded up to the 16-frame grid; where the slot
-                         is written in training)
-      annotation end a_k nearest end of a language-annotation segment (one move() call)
-    and checks that the replay reproduces the demo (frame count, max EE distance to the HDF5).
-Pass (per episode): replay aligned, oracle reaches 3, |ceil16(f_k) - g_k| <= 16 and
+      train  end  r_k    swap_blocks_event_ends on the replay's own EE positions and grippers
+                         (the definition used for the training boundaries)
+      annotation end a_k nearest end of this replay's language-annotation segments
+Pass (per episode): replay succeeds, oracle reaches 3, |ceil16(f_k) - ceil16(r_k)| <= 16 and
 |f_k - a_k| <= 16 for every k. Report: <out>/oracle_replay.md and .json.
 """
 
@@ -146,8 +146,13 @@ def replay(task_env, args, idx, seed, traj_dir):
         task_env.set_path_lst(a)
     task_env.play_once()
     ok = bool(task_env.plan_success and task_env.check_success())
+    ann = [list(x) for x in task_env.language_annotation]
     task_env.close_env(clear_cache=((idx + 1) % 5 == 0))
-    return REC.get("frames", []), mode, ok
+    return REC.get("frames", []), mode, ok, ann
+
+
+def ceil16(x):
+    return int(np.ceil(x / GRID) * GRID)
 
 
 def first_reach(stages_done, k):
@@ -189,29 +194,29 @@ def main():
         name = f"episode_{idx:07d}.hdf5"
         row = {"episode": name, "seed": seeds[idx]}
         try:
-            frames, mode, ok = replay(task_env, args, idx, seeds[idx], root / "_traj_data")
-            st = hdf5_state(root / "data" / name)
-            n_h, n_r = len(st["left_ee_poses"]), len(frames)
-            m = min(n_h, n_r)
-            L = np.array([f["l"] for f in frames[:m]]); R = np.array([f["r"] for f in frames[:m]])
-            ee_err = float(max(np.abs(L - st["left_ee_poses"][:m, :3]).max(),
-                               np.abs(R - st["right_ee_poses"][:m, :3]).max()))
-            train_ends = stages_mod.swap_blocks_event_ends(
-                st["left_ee_poses"][:, :3], st["right_ee_poses"][:, :3],
-                st["left_ee_joint_states"].reshape(-1), st["right_ee_joint_states"].reshape(-1))
-            grid_ends = [s[1] for s in bounds[name][:3]]
-            a_ends = annotation_ends(ann[f"episode_{idx}"])
+            frames, mode, ok, ann_self = replay(task_env, args, idx, seeds[idx], root / "_traj_data")
             sd = [f["stages_done"] for f in frames]
             orc = [first_reach(sd, k) for k in (1, 2, 3)]
-            d_grid = [None if f is None else int(np.ceil(f / GRID) * GRID) - g for f, g in zip(orc, grid_ends)]
-            d_train = [None if f is None else f - r for f, r in zip(orc, train_ends)]
-            d_ann = [None if f is None else min((f - a for a in a_ends), key=abs) for f in orc]
-            aligned = 0 <= n_r - n_h <= 1 and ee_err < 0.005   # the HDF5 may drop the last frame
-            passed = (aligned and None not in orc and all(abs(x) <= GRID for x in d_grid)
+            # (1) MAIN CHECK, on the replayed expert trajectory itself: oracle vs the training
+            #     definition computed on the same frames, and vs this replay's annotation segments
+            L = np.array([f["l"] for f in frames]); R = np.array([f["r"] for f in frames])
+            lg = np.array([f["lg"] for f in frames]); rg = np.array([f["rg"] for f in frames])
+            tr_self = stages_mod.swap_blocks_event_ends(L, R, lg, rg)
+            a_self = annotation_ends(ann_self)
+            d_train = [None if f is None else f - r for f, r in zip(orc, tr_self)]
+            d_grid = [None if f is None else ceil16(f) - ceil16(r) for f, r in zip(orc, tr_self)]
+            d_ann = [None if f is None else min((f - a for a in a_self), key=abs) for f in orc]
+            passed = (ok and None not in orc and all(abs(x) <= GRID for x in d_grid)
                       and all(abs(x) <= GRID for x in d_ann))
+            # (2) INFO: is the replay the same trajectory as the HDF5 demo? (only with saved paths)
+            st = hdf5_state(root / "data" / name)
+            n_h, n_r = len(st["left_ee_poses"]), len(frames)
+            ee0 = float(max(np.abs(L[0] - st["left_ee_poses"][0, :3]).max(),
+                            np.abs(R[0] - st["right_ee_poses"][0, :3]).max()))
             row.update(mode=mode, replay_success=ok, frames_hdf5=n_h, frames_replay=n_r,
-                       max_ee_err_m=round(ee_err, 5), aligned=aligned, oracle=orc, train=train_ends,
-                       grid=grid_ends, d_train=d_train, d_grid=d_grid, d_ann=d_ann, passed=passed)
+                       ee_err_frame0_m=round(ee0, 5), oracle=orc, train_self=tr_self,
+                       ann_ends_self=a_self, train_hdf5=[s[1] for s in bounds[name][:3]],
+                       d_train=d_train, d_grid=d_grid, d_ann=d_ann, passed=passed)
         except Exception as e:                       # one bad episode must not stop the check
             row.update(error=f"{type(e).__name__}: {e}", passed=False)
             traceback.print_exc()
@@ -224,10 +229,12 @@ def main():
     def col(key, k):
         return [r[key][k] for r in good if r[key][k] is not None]
     lines = [f"# Oracle vs boundaries on expert replay ({args_cli.task}, {len(rows)} episodes)", "",
-             f"passed: {sum(r['passed'] for r in rows)}/{len(rows)}; replay aligned with HDF5: "
-             f"{sum(r.get('aligned', False) for r in rows)}/{len(rows)}; errors: {len(rows) - len(good)}", "",
+             f"passed: {sum(r['passed'] for r in rows)}/{len(rows)}; replay succeeded: "
+             f"{sum(r.get('replay_success', False) for r in rows)}/{len(rows)}; errors: {len(rows) - len(good)}", "",
+             "All comparisons are on the REPLAYED expert trajectory (oracle, training definition and",
+             "annotation segments computed from the same frames).", "",
              "differences in frames (1 action chunk = 16 frames); min / median / max over episodes", "",
-             "| move | oracle - train end | ceil16(oracle) - grid end | oracle - nearest annotation end | oracle never reached |",
+             "| move | oracle - train-definition end | ceil16(oracle) - ceil16(train end) | oracle - nearest annotation end | oracle never reached |",
              "|---|---|---|---|---|"]
     for k in range(3):
         cells = []
@@ -240,8 +247,8 @@ def main():
     if bad:
         lines += ["", "## Episodes that did not pass", ""]
         lines += [f"- {r['episode']}: " + (r.get("error") or
-                  f"aligned={r['aligned']} (frames {r['frames_replay']}/{r['frames_hdf5']}, ee err "
-                  f"{r['max_ee_err_m']} m), oracle {r['oracle']}, grid {r['grid']}, d_ann {r['d_ann']}")
+                  f"replay_success={r['replay_success']}, oracle {r['oracle']}, train {r['train_self']}, "
+                  f"d_grid {r['d_grid']}, d_ann {r['d_ann']}")
                   for r in bad]
     (out / "oracle_replay.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
