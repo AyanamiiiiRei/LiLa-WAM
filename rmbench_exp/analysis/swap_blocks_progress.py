@@ -10,7 +10,7 @@ unexpected move; stuck_after_k = repeated the last move / never pressed (placeme
 import json,numpy as np,collections,sys
 import pathlib
 R=str(pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'runs'))+'/'
-G={'A':'sm_A-seed0/rmbench_eval/ckpt_8000','F':'sm_F-seed0/rmbench_eval/ckpt_8000','M':'sm_M-seed0/rmbench_eval/ckpt_8000','M-empty':'sm_M-seed0/rmbench_eval/ckpt_8000_M-empty'}
+G={'A':'sm_A-seed0/rmbench_eval/ckpt_8000','F':'sm_F-seed0/rmbench_eval/ckpt_8000','M':'sm_M-seed0/rmbench_eval/ckpt_8000','M-empty':'sm_M-seed0/rmbench_eval/ckpt_8000_M-empty','M0':'sm_M0-seed0/rmbench_eval/ckpt_8000'}
 def tray(x): return 'LMR'[int(np.clip(round(x/0.14),-1,1))+1]
 def classify(st):
     ev=[]
@@ -41,7 +41,9 @@ def classify(st):
         else: return ('restart_after_3' if idx==3 else 'wrong_move_after_%d'%idx), idx
     return ('stuck_after_%d'%idx), idx
 out={}
+import os
 for g,p in G.items():
+    if not os.path.isfile(R+p+'/episodes.jsonl'): print(g,'(no results yet)'); continue
     E={}
     for l in open(R+p+'/episodes.jsonl'):
         e=json.loads(l); E[e['seed']]=e
