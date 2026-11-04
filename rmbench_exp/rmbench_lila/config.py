@@ -132,9 +132,13 @@ def validate(cfg: DictConfig) -> None:
 
     sm_on = bool(OmegaConf.select(cfg, "model.stage_memory.enabled", default=False))
     variant = cfg.model.get("variant", "lila_wam")
-    if sm_on != (variant == "lila_wam_stage_memory"):
-        errs.append("model.stage_memory.enabled=true <=> model.variant=lila_wam_stage_memory")
-    if sm_on != ("stage_memory" in feats):
+    if sm_on != (variant in ("lila_wam_stage_memory", "lila_wam_learned_switch")):
+        errs.append("model.stage_memory.enabled=true <=> model.variant in (lila_wam_stage_memory, "
+                    "lila_wam_learned_switch)")
+    if variant == "lila_wam_learned_switch":
+        if "stage_memory" in feats:
+            errs.append("lila_wam_learned_switch must not use the 'stage_memory' feature (no boundaries)")
+    elif sm_on != ("stage_memory" in feats):
         errs.append("model.stage_memory.enabled and the 'stage_memory' dataset feature must agree")
 
     if errs:

@@ -96,6 +96,11 @@ class Model(ModelTemplate):
         if self.trigger not in TRIGGERS:
             raise ValueError(self._error_msg(f"stage_trigger must be one of {TRIGGERS}, got {self.trigger!r}"))
         self.proprio = self.time_trig = self.head = None
+        if self.policy.learned_switch:
+            self.trigger = "learned"          # phase 3: the model itself decides when to write
+            return
+        if self.trigger == "learned":
+            raise ValueError(self._error_msg("stage_trigger=learned needs a lila_wam_learned_switch run"))
         if self.trigger != "oracle" and (self.policy.memory is None or self.policy.memory.mode != "stage"):
             raise ValueError(self._error_msg(f"stage_trigger={self.trigger} needs a stage-memory run"))
         task = self.cfg.get("task_name") or "swap_blocks"
@@ -213,11 +218,13 @@ class Model(ModelTemplate):
 
     def get_action(self):
         if self.policy.memory is not None and self.policy.memory.mode == "stage" and self.stages_done is None \
-                and not self.policy.memory.force_empty:
+                and not self.policy.memory.force_empty and self.trigger != "learned":
             raise RuntimeError(self._error_msg("stage-memory run but no obs['oracle']: "
                                                "evaluate with scripts/step24_eval_with_oracle.sh"))
         self.oracle_trace.append(self.stages_done)
-        if self.trigger == "oracle":
+        if self.trigger == "learned":
+            chunk = self.policy.predict_chunk(self.gen)
+        elif self.trigger == "oracle":
             chunk = self.policy.predict_chunk(self.gen, stages_done=self.stages_done)
         elif self.trigger == "proprio":
             chunk = self.policy.predict_chunk(self.gen, stages_done=self.proprio.done)
@@ -244,6 +251,7 @@ class Model(ModelTemplate):
                "stage_trigger": self.trigger,
                "oracle_trace": getattr(self, "oracle_trace", None),
                "head_log": list(self.head.log) if self.head is not None else None,
+               "switch_log": list(self.policy.switch_log) if self.policy.learned_switch else None,
                "memory_writes": list(self.policy.memory.log) if self.policy.memory is not None else None,
                "memory_override": self._opt(self.cfg, "memory_override", "LILA_MEMORY_OVERRIDE"),
                "time": time.strftime("%Y-%m-%d %H:%M:%S")}

@@ -18,7 +18,8 @@ from pathlib import Path
 R = Path(sys.argv[1] if len(sys.argv) > 1 else "runs")
 G = {"A": "sm_A-seed0/rmbench_eval/ckpt_8000", "M-empty": "sm_M-seed0/rmbench_eval/ckpt_8000_M-empty",
      "M (oracle)": "sm_M-seed0/rmbench_eval/ckpt_8000", "M-proprio": "sm_M-seed0/rmbench_eval/ckpt_8000_M-proprio",
-     "M-head": "sm_M-seed0/rmbench_eval/ckpt_8000_M-head", "M-time": "sm_M-seed0/rmbench_eval/ckpt_8000_M-time"}
+     "M-head": "sm_M-seed0/rmbench_eval/ckpt_8000_M-head", "M-time": "sm_M-seed0/rmbench_eval/ckpt_8000_M-time",
+     "S (learned switch)": "sm_S-seed0/rmbench_eval/ckpt_1500"}
 
 
 def load(p):
@@ -69,7 +70,7 @@ for g, E in data.items():
     print(f"| {g} | {k}/{n} | {lo:.0%}-{hi:.0%} | {vm} | {va} | {kept} |")
 
 print("\nwrite timing vs the oracle (chunks; negative = trigger wrote before the oracle)")
-for g in ("M-proprio", "M-head", "M-time"):
+for g in ("M-proprio", "M-head", "M-time", "S (learned switch)"):
     E = data[g]
     if E is None:
         continue

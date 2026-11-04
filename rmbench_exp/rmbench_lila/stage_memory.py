@@ -50,11 +50,17 @@ class StageMemory(nn.Module):
         self.empty = nn.Parameter(torch.randn(hidden_dim) * 0.02)
 
     def forward(self, cls_pairs: torch.Tensor, written: torch.Tensor) -> torch.Tensor:
-        """cls_pairs (B, N, 2, D) = (first, last) CLS per slot; written (B, N) bool -> (B, N, H)."""
+        """cls_pairs (B, N, 2, D) = (first, last) CLS per slot; written (B, N) bool -> (B, N, H).
+        A floating-point ``written`` in [0, 1] mixes content and empty (phase 3, learned switch:
+        the straight-through write weight); with bool it is exactly the phase-1 behaviour."""
         x = torch.cat([self.ln_first(cls_pairs[:, :, 0]), self.ln_last(cls_pairs[:, :, 1])], dim=-1)
         content = self.mlp(x)
         empty = self.empty.to(content.dtype).expand_as(content)
-        tok = torch.where(written[..., None].bool(), content, empty)
+        if written.dtype == torch.bool:
+            tok = torch.where(written[..., None], content, empty)
+        else:
+            w = written[..., None].to(content.dtype)
+            tok = w * content + (1 - w) * empty
         return tok + self.slot_emb.to(content.dtype)[None]
 
 
@@ -105,7 +111,8 @@ def _forward_with_memory(self, t, noisy_actions, qpos_history=None, dino_feature
     else:
         cond_tokens = x[:, self.action_len:, :]
     self._last_layout = {"dino_start": dino_start, "dino_end": dino_end, "seq_len": x.shape[1]}
-    return {"final_pred": final_pred, "cond_tokens": cond_tokens}
+    # outputs of the appended tokens (memory, and the learned-switch token in phase 3)
+    return {"final_pred": final_pred, "cond_tokens": cond_tokens, "tail": x[:, dino_end:, :]}
 
 
 def attach_stage_memory(action_model, num_slots: int, cls_dim: int) -> None:
@@ -201,6 +208,20 @@ class OnlineStageMemory:
         self.n_written = 0
         self.log: list[tuple] = []          # (chunk index, slot) writes, for the episode record
         self._chunk = 0
+
+    def write_now(self, cur_cls: np.ndarray) -> bool:
+        """Phase 3 (learned switch): the model decided at THIS chunk that its stage has ended:
+        write slot n with (stage start, current CLS); visible from the next chunk on."""
+        if self.mode != "stage" or self.force_empty or self.n_written >= self.num_slots:
+            return False
+        cur = np.asarray(cur_cls, np.float32).reshape(-1)
+        n = self.n_written
+        self.cls[n, 0], self.cls[n, 1] = self.stage_start, cur
+        self.written[n] = True
+        self.log.append((self._chunk - 1, n))      # update() of this chunk already advanced _chunk
+        self.stage_start = cur
+        self.n_written += 1
+        return True
 
     def update(self, cur_cls: np.ndarray, stages_done: int | None) -> None:
         cur = np.asarray(cur_cls, np.float32).reshape(-1)

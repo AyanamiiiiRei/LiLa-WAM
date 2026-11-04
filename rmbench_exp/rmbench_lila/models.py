@@ -44,6 +44,25 @@ def _build_lila_wam_stage_memory(cfg, norm_stats_path, device, dtype, training):
     return built
 
 
+@MODELS.register("lila_wam_learned_switch")
+def _build_lila_wam_learned_switch(cfg, norm_stats_path, device, dtype, training):
+    """Phase 3: stage memory + a learned switch that decides when to write (rmbench_lila/learned_switch.py).
+    Config: model.stage_memory (enabled, num_slots, mode: stage), model.learned_switch."""
+    from . import lila_api
+    from .learned_switch import attach_learned_switch
+    sm, ls = cfg.model.get("stage_memory", None), cfg.model.get("learned_switch", None)
+    if not sm or not sm.get("enabled", False) or not ls:
+        raise ValueError("variant lila_wam_learned_switch needs model.stage_memory.enabled and model.learned_switch")
+    built = lila_api.build_model(cfg, norm_stats_path, device, dtype, training)
+    attach_learned_switch(built.action_model, int(sm.num_slots), built.dino_hidden_size,
+                          float(ls.get("prior_rate", 0.08)))
+    return built
+
+
+def uses_learned_switch(cfg: DictConfig) -> bool:
+    return cfg.model.get("variant", "lila_wam") == "lila_wam_learned_switch"
+
+
 def uses_stage_memory(cfg: DictConfig) -> bool:
     sm = cfg.model.get("stage_memory", None)
     return bool(sm and sm.get("enabled", False))
@@ -56,6 +75,6 @@ def load_init_weights(action_model, state_dict: dict, cfg: DictConfig) -> None:
         action_model.load_state_dict(state_dict, strict=True)
         return
     res = action_model.load_state_dict(state_dict, strict=False)
-    bad_missing = [k for k in res.missing_keys if not k.startswith("stage_memory.")]
+    bad_missing = [k for k in res.missing_keys if not k.startswith(("stage_memory.", "switch."))]
     if bad_missing or res.unexpected_keys:
         raise RuntimeError(f"warm start mismatch: missing {bad_missing[:5]}..., unexpected {res.unexpected_keys[:5]}...")

@@ -10,7 +10,7 @@ unexpected move; stuck_after_k = repeated the last move / never pressed (placeme
 import json,numpy as np,collections,sys
 import pathlib
 R=str(pathlib.Path(sys.argv[1] if len(sys.argv)>1 else 'runs'))+'/'
-G={'A':'sm_A-seed0/rmbench_eval/ckpt_8000','F':'sm_F-seed0/rmbench_eval/ckpt_8000','M':'sm_M-seed0/rmbench_eval/ckpt_8000','M-empty':'sm_M-seed0/rmbench_eval/ckpt_8000_M-empty','M0':'sm_M0-seed0/rmbench_eval/ckpt_8000','M-proprio':'sm_M-seed0/rmbench_eval/ckpt_8000_M-proprio','M-head':'sm_M-seed0/rmbench_eval/ckpt_8000_M-head','M-time':'sm_M-seed0/rmbench_eval/ckpt_8000_M-time'}
+G={'A':'sm_A-seed0/rmbench_eval/ckpt_8000','F':'sm_F-seed0/rmbench_eval/ckpt_8000','M':'sm_M-seed0/rmbench_eval/ckpt_8000','M-empty':'sm_M-seed0/rmbench_eval/ckpt_8000_M-empty','M0':'sm_M0-seed0/rmbench_eval/ckpt_8000','M-proprio':'sm_M-seed0/rmbench_eval/ckpt_8000_M-proprio','M-head':'sm_M-seed0/rmbench_eval/ckpt_8000_M-head','M-time':'sm_M-seed0/rmbench_eval/ckpt_8000_M-time','S':'sm_S-seed0/rmbench_eval/ckpt_1500'}
 def tray(x): return 'LMR'[int(np.clip(round(x/0.14),-1,1))+1]
 def classify(st):
     ev=[]

@@ -66,6 +66,8 @@ class LiLaWAMPolicy:
         # Stage memory (only for runs with model.stage_memory.enabled; None otherwise, and then
         # nothing below changes the original behaviour). memory_override="empty" = M-empty eval.
         self.memory = None
+        self.learned_switch = models.uses_learned_switch(cfg)   # phase 3: the model decides writes
+        self.switch_log: list = []                              # (chunk, mean p) per decision
         if models.uses_stage_memory(cfg):
             from .stage_memory import OnlineStageMemory
             sm = cfg.model.stage_memory
@@ -124,6 +126,7 @@ class LiLaWAMPolicy:
         self.rgb = self.first_rgb = None
         if self.memory is not None:
             self.memory.reset()
+        self.switch_log = []
 
     def observe(self, state: np.ndarray, rgb: np.ndarray | None = None) -> None:
         """Record one env step. ``rgb`` = decoded HxWx3 uint8 RGB (None = keep the previous one)."""
@@ -169,6 +172,33 @@ class LiLaWAMPolicy:
         delta = (lila_api.foresight_patch_mean(self.action_model, out["cond_tokens"]) - cur)[0]
         return cls_now, delta.cpu().numpy(), out["final_pred"]
 
+    def _predict_learned(self, px, qpos, feats, x, ts) -> np.ndarray:
+        """Phase 3: act with the current memory; the switch probability is averaged over the flow
+        steps (training saw random flow times); a switch writes the next slot with this chunk's
+        CLS, visible from the next chunk (same convention as training, learned_switch.py)."""
+        from .stage_memory import frame_cls
+        cls_now = frame_cls(self.model.vision_encoder, px, self.device, self.dtype)[0]
+        self.memory.update(cls_now, stages_done=None)          # no external trigger
+        self.action_model.set_memory_input(*self.memory.tensors(self.device, self.dtype))
+        cls_t = torch.from_numpy(cls_now)[None].to(self.device)
+        count = torch.tensor([self.memory.n_written], device=self.device)
+        ps = []
+        try:
+            for i in range(self.n_steps):
+                v = lila_api.predict_velocity(self.action_model, ts[i][None], x, qpos, feats, self.task_cond)
+                ps.append(float(torch.sigmoid(self.action_model.switch_logit(cls_t, count))[0]))
+                x = x + v * (ts[i + 1] - ts[i])
+        finally:
+            self.action_model.clear_memory_input()
+        p = float(np.mean(ps))
+        self.switch_log.append((self.memory._chunk - 1, round(p, 3)))
+        if p > 0.5:
+            self.memory.write_now(cls_now)
+        act = self.model.denormalize_action(x)[0].float().cpu().numpy()
+        if self.smooth:
+            act = bspline_smooth(act, 3, self.smooth_pts)
+        return act.astype(np.float32)
+
     @torch.no_grad()
     def stage_features(self, generator: torch.Generator | None = None):
         """(CLS, foresight change) for the observed frame with the memory as currently set
@@ -189,6 +219,8 @@ class LiLaWAMPolicy:
         if self.cfg.model.get("use_task_cond", False) and self.task_cond is None:
             raise RuntimeError("set_task() was not called")
         px, qpos, feats, x, ts = self._inputs(generator)
+        if self.learned_switch:
+            return self._predict_learned(px, qpos, feats, x, ts)
         v0 = None
         if self.memory is not None:
             from .stage_memory import frame_cls
