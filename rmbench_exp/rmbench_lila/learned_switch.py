@@ -13,9 +13,15 @@ No boundaries, labels, rules or oracle are used anywhere in training. Same memor
     straight-through estimate s_c + p_c - sg(p_c). The written weight of slot n at chunk c' is
     w_n = clamp(sum_{c<c'} s_c - n, 0, 1) (0 or 1 in the forward), so the action loss of later
     chunks tells the head whether an earlier/later switch would have helped;
-  * prior on the NUMBER of switches only: lambda_count * ((sum_c p_c - N) / N)^2 per demo
-    (N = num_slots, as M is given N slots); nothing says WHERE to switch.
-Loss = mean over chunks of the original loss (L_fm + 0.5 L_ff) + the count prior.
+  * no prior on WHERE to switch. On HOW OFTEN, one of:
+      switch_cost (default design, task-independent): + switch_cost * (sum_c p_c) / C per demo,
+        i.e. every switch must pay for itself in action loss; the number of switches is free
+        up to num_slots (slots are spare capacity, e.g. 6). The cost ramps up linearly from 0
+        between switch_cost_start and switch_cost_full steps, so that the memory content is
+        learned (writes happen) before switches become costly; Bernoulli sampling keeps an
+        exploration floor explore_p.
+      count_target (optional): + lambda_count * ((sum_c p_c - K) / K)^2 per demo.
+Loss = mean over chunks of the original loss (L_fm + 0.5 L_ff) + the switch prior.
 Each chunk's loss is back-propagated right away (its DiT graph is then freed); only the tiny
 head graphs are kept across the demo.
 """
@@ -121,7 +127,13 @@ def train(cfg, run_dir: Path, device: str, dtype, init_from: str | None) -> str:
     ls = cfg.model.learned_switch
     N = int(cfg.model.stage_memory.num_slots)
     steps, per_step = int(ls.total_steps), int(ls.episodes_per_step)
-    lam_count, lam_ff = float(ls.lambda_count), float(cfg.training.get("lambda_future_feat", 0.0))
+    target = ls.get("count_target", None)
+    lam_count = float(ls.get("lambda_count", 0.0))
+    sw_cost = float(ls.get("switch_cost", 0.0))
+    sw_start, sw_full = int(ls.get("switch_cost_start", 0)), int(ls.get("switch_cost_full", 0))
+    explore = float(ls.get("explore_p", 0.0))
+    if target is None and sw_cost <= 0:
+        raise ValueError("model.learned_switch needs switch_cost > 0 or a count_target")
     seed = int(cfg.experiment.seed)
     seed_everything(seed)
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -176,14 +188,16 @@ def train(cfg, run_dir: Path, device: str, dtype, init_from: str | None) -> str:
     csv_path = run_dir / "switch_train.csv"
     if not csv_path.exists():
         with open(csv_path, "w", newline="") as f:
-            csv.writer(f).writerow(["step", "loss_fm", "loss_ff", "loss_count", "mean_p_sum", "mean_switches",
+            csv.writer(f).writerow(["step", "loss_fm", "loss_ff", "loss_prior", "mean_p_sum", "mean_switches",
                                     "lr", "sec_per_step", "switch_chunks_first_demo"])
     gen = torch.Generator().manual_seed(seed + step)
     clip = float(t.grad_clip_norm)
     stop = run_dir / "STOP"
     tic = time.time()
-    logger.info(f"learned switch: {steps} steps x {per_step} demos (whole demos, chunk by chunk); "
-                f"prior: {N} switches/demo, lambda_count {lam_count}; stop safely with: touch {stop}")
+    logger.info(f"learned switch: {steps} steps x {per_step} demos (whole demos, chunk by chunk); {N} slots; "
+                f"prior: " + (f"count target {target} (lambda {lam_count})" if target is not None else
+                              f"switch cost {sw_cost} (ramp {sw_start}->{sw_full} steps), explore {explore}")
+                + f"; stop safely with: touch {stop}")
     ac = dict(device_type="cuda" if device.startswith("cuda") else "cpu", dtype=dtype, enabled=dtype != torch.float32)
     while step < steps:
         eps, C = plan[step]
@@ -215,7 +229,8 @@ def train(cfg, run_dir: Path, device: str, dtype, init_from: str | None) -> str:
             with torch.autocast(**ac):
                 logit = am.switch_logit(torch.from_numpy(np.stack(now)).to(device), count.to(device))
             p = torch.sigmoid(logit)
-            s = torch.bernoulli(p.detach().cpu(), generator=gen).to(device)
+            p_sample = p.detach().cpu().clamp(min=explore)
+            s = torch.bernoulli(p_sample, generator=gen).to(device)
             s = s * (count.to(device) < N).float()
             n_st = n_st + s + p - p.detach()
             p_sum = p_sum + p
@@ -229,7 +244,11 @@ def train(cfg, run_dir: Path, device: str, dtype, init_from: str | None) -> str:
             prev = now
             am.clear_memory_input()
             del loss_c, info
-        loss_count = lam_count * (((p_sum - N) / N) ** 2).mean()
+        if target is not None:
+            loss_count = lam_count * (((p_sum - float(target)) / float(target)) ** 2).mean()
+        else:
+            ramp = 1.0 if sw_full <= sw_start else min(max((step - sw_start) / (sw_full - sw_start), 0.0), 1.0)
+            loss_count = sw_cost * ramp * (p_sum / C).mean()
         loss_count.backward()
         torch.nn.utils.clip_grad_norm_(am.parameters(), clip)
         opt.step()
@@ -243,7 +262,7 @@ def train(cfg, run_dir: Path, device: str, dtype, init_from: str | None) -> str:
                                     f"{opt.param_groups[0]['lr']:.2e}", round(dt, 2),
                                     json.dumps(sw_chunks[0])])
         if step % int(ls.get("log_every", 10)) == 0 or step == 1:
-            logger.info(f"step {step}/{steps} fm {fm:.4f} ff {ff:.4f} count-loss {float(loss_count):.4f} "
+            logger.info(f"step {step}/{steps} fm {fm:.4f} ff {ff:.4f} prior {float(loss_count):.5f} "
                         f"sum p {float(p_sum.mean()):.2f} switches {float(count.float().mean()):.2f} "
                         f"(demo {eps[0]}: chunks {sw_chunks[0]}) {dt:.1f}s/step "
                         f"ETA {dt * (steps - step) / 3600:.1f}h")

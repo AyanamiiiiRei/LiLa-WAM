@@ -1,6 +1,7 @@
 # Stage-memory phase 3, option A: the model learns WHEN to switch (rmbench_lila/learned_switch.py).
 # Same data, memory, warm start and learning rate as M; NO boundaries anywhere (no stage_memory
-# feature, boundaries: null). Only the number of switches per demo (3 = num_slots) is a prior.
+# feature, boundaries: null). 6 slots = spare capacity (swap_blocks needs 3); the number of
+# switches is NOT given: each switch pays a cost and must reduce the action loss to be worth it.
 _base_: A.yaml
 experiment:
   name: sm_S
@@ -14,12 +15,18 @@ model:
   stage_memory:
     enabled: true
     mode: stage
-    num_slots: 3
+    num_slots: 6                    # task-independent spare capacity (user decision)
   learned_switch:
     episodes_per_step: 8            # whole demos per optimizer step (~37 chunks each, ~300 samples)
     total_steps: 1500               # x ~300 samples ~ 450k samples (M: 8000 x 64 = 512k)
     warmup_steps: 100
-    lambda_count: 1.0               # ((sum_c p_c - 3) / 3)^2 per demo
-    prior_rate: 0.08                # initial P(switch) per chunk ~ 3 / 37
+    count_target: null              # no target number of switches
+    switch_cost: 0.05               # + 0.05 * (sum_c p_c) / C per demo: ~0.0014 per switch in mean-loss
+                                    #   units; one correct write lowered M's held-out L_fm by ~0.01 on
+                                    #   the ~10 chunks after it (~0.003 in mean-loss units)
+    switch_cost_start: 300          # cost 0 for the first 300 steps (memory content learns from writes),
+    switch_cost_full: 600           #   then ramps linearly to switch_cost at step 600
+    explore_p: 0.02                 # training only: a switch is sampled with prob >= 0.02 per chunk
+    prior_rate: 0.08                # initial P(switch) per chunk (~3 per demo at the start)
     save_every: 250
     log_every: 10

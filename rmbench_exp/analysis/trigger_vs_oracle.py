@@ -74,8 +74,8 @@ for g in ("M-proprio", "M-head", "M-time", "S (learned switch)"):
     E = data[g]
     if E is None:
         continue
-    per = {0: [], 1: [], 2: []}
-    false = {0: 0, 1: 0, 2: 0}
+    from collections import defaultdict
+    per, false = defaultdict(list), defaultdict(int)
     for e in E.values():
         tr = e.get("oracle_trace") or []
         first = {}
@@ -87,7 +87,7 @@ for g in ("M-proprio", "M-head", "M-time", "S (learned switch)"):
                 per[slot].append(c - first[slot])
             else:
                 false[slot] += 1
-    for slot in (0, 1, 2):
+    for slot in sorted(set(per) | set(false)):
         v = sorted(per[slot])
         if v or false[slot]:
             med = v[len(v) // 2] if v else None

@@ -64,7 +64,7 @@ def main():
             pol.observe(states[t], rgb)
             pol.predict_chunk(g)
         sw = [c for c, _ in pol.memory.log]
-        true = [bounds[name][k][1] // GRID for k in range(N)]
+        true = [s_[1] // GRID for s_ in bounds[name][:-1]]          # move ends (the last stage ends the task)
         rows.append({"episode": name, "split": "heldout" if ref.path in held else "train", "n_chunks": len(ts),
                      "switches": sw, "true": true, "p": [p for _, p in pol.switch_log]})
         print(f"{name}: switches at chunks {sw}, move ends at chunks {true}")
@@ -72,21 +72,29 @@ def main():
 
     train = [r for r in rows if r["split"] == "train"]
     mean_t = [int(round(x)) for x in np.mean([r["true"] for r in train], axis=0)]
-    lines = [f"# Learned switch on the demos ({run.name}, checkpoint {pol.checkpoint_step})", "",
-             "| | hits train | hits held-out | ARI train | ARI held-out |", "|---|---|---|---|---|"]
+    K = len(rows[0]["true"])
+    lines = [f"# Learned switch on the demos ({run.name}, checkpoint {pol.checkpoint_step}, {N} slots, "
+             f"{K} move ends)", "",
+             "hits = move ends with a switch within +-1 chunk (recall); precision = switches within +-1 chunk "
+             "of a move end", "",
+             "| | hits train | hits held-out | precision train | precision held-out | ARI train | ARI held-out |",
+             "|---|---|---|---|---|---|---|"]
     for name, fn in (("learned switch", lambda r: r["switches"]), ("mean time (uses labels)", lambda r: mean_t)):
-        cells = []
+        cells = {}
         for split in ("train", "heldout"):
             rs = [r for r in rows if r["split"] == split]
             h = sum(hits(sorted(fn(r)), r["true"]) for r in rs)
+            n_sw = sum(len(fn(r)) for r in rs)
+            prec = sum(sum(any(abs(c - e) <= 1 for e in r["true"]) for c in fn(r)) for r in rs)
             a = np.mean([ari(labels_from_cuts(sorted(fn(r)), r["n_chunks"]), labels_from_cuts(r["true"], r["n_chunks"]))
                          for r in rs])
-            cells += [f"{h}/{N * len(rs)}", f"{a:.2f}"]
-        lines.append(f"| {name} | {cells[0]} | {cells[2]} | {cells[1]} | {cells[3]} |")
+            cells[split] = (f"{h}/{K * len(rs)}", f"{prec}/{n_sw}", f"{a:.2f}")
+        lines.append(f"| {name} | {cells['train'][0]} | {cells['heldout'][0]} | {cells['train'][1]} | "
+                     f"{cells['heldout'][1]} | {cells['train'][2]} | {cells['heldout'][2]} |")
     nsw = [len(r["switches"]) for r in rows]
     lines += ["", f"switches per demo: " + ", ".join(f"{k}: {nsw.count(k)}" for k in range(N + 1)), "",
-              "spread across demos (chunks, std): learned switch k vs true end k"]
-    for k in range(N):
+              "spread across demos (chunks, std): k-th learned switch vs k-th move end (demos with >= k switches)"]
+    for k in range(K):
         sk = [r["switches"][k] for r in rows if len(r["switches"]) > k]
         tk = [r["true"][k] for r in rows if len(r["switches"]) > k]
         if len(sk) > 2:
