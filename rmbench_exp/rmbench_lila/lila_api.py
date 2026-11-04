@@ -136,6 +136,18 @@ def predict_velocity(action_model, t, noisy_actions, qpos_history, dino_features
     )["final_pred"]
 
 
+def forward_full(action_model, t, noisy_actions, qpos_history, dino_features_list, task_cond) -> dict:
+    """Same forward as predict_velocity, returning the model's whole output dict
+    ('final_pred' and 'cond_tokens'; used by the phase-2 switch head)."""
+    return action_model(t=t, noisy_actions=noisy_actions, qpos_history=qpos_history,
+                        dino_features_list=dino_features_list, task_cond=task_cond)
+
+
+def foresight_patch_mean(action_model, cond_tokens):
+    """Mean over patches of the foresight decoder's predicted future patch features, (B, D)."""
+    return action_model.future_feat_decoder(cond_tokens).float().mean(dim=1)
+
+
 def checkpoint_payload(action_model, optimizer=None, scheduler=None, **meta) -> dict:
     """Checkpoint dict compatible with the main project's loaders ('model_state_dict')."""
     payload = {"model_state_dict": action_model.state_dict(), **meta}

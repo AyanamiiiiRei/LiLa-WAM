@@ -59,6 +59,9 @@ class Model(ModelTemplate):
         self.policy = LiLaWAMPolicy.from_run(self.run_dir, str(model_cfg.get("checkpoint", "latest")), device,
                                              memory_override=self._opt(model_cfg, "memory_override", "LILA_MEMORY_OVERRIDE"))
         self.stages_done = None      # from obs["oracle"] (stage-memory runs, eval launcher with oracle)
+        # Phase 2: what triggers memory writes (rmbench_lila/triggers.py). Default: the oracle.
+        self.trigger = self._opt(model_cfg, "stage_trigger", "LILA_STAGE_TRIGGER") or "oracle"
+        self._init_trigger(root)
         pc = self.policy.cfg
         self.state_layout = get_state_layout(pc.rmbench.state_layout)
         self.action_layout = get_action_layout(pc.rmbench.action_layout)
@@ -87,6 +90,24 @@ class Model(ModelTemplate):
             self._set_task(model_cfg["task_name"])
         print(f"[LiLa_WAM] ready: run={self.run_dir} ckpt_step={self.policy.checkpoint_step} "
               f"horizon={self.horizon} task={self.task}")
+
+    def _init_trigger(self, root: Path) -> None:
+        from rmbench_lila.triggers import TRIGGERS, ProprioTrigger, SwitchHead, TimeTrigger
+        if self.trigger not in TRIGGERS:
+            raise ValueError(self._error_msg(f"stage_trigger must be one of {TRIGGERS}, got {self.trigger!r}"))
+        self.proprio = self.time_trig = self.head = None
+        if self.trigger != "oracle" and (self.policy.memory is None or self.policy.memory.mode != "stage"):
+            raise ValueError(self._error_msg(f"stage_trigger={self.trigger} needs a stage-memory run"))
+        task = self.cfg.get("task_name") or "swap_blocks"
+        art = root / "artifacts" / "stage_memory" / task
+        if self.trigger == "proprio":
+            self.proprio = ProprioTrigger(int(self.policy.cfg.model.stage_memory.num_slots))
+        elif self.trigger == "time":
+            ends = json.loads((art / "time_trigger.json").read_text())["ends_env_steps"]
+            self.time_trig = TimeTrigger(ends)
+        elif self.trigger == "head":
+            path = self._opt(self.cfg, "switch_head", "LILA_SWITCH_HEAD") or str(art / "switch_head.pt")
+            self.head = SwitchHead(path)
 
     @staticmethod
     def _opt(cfg, key, env):
@@ -134,6 +155,11 @@ class Model(ModelTemplate):
     def reset(self):
         self.policy.reset()
         self.stages_done = None
+        self.oracle_trace: list = []       # oracle stages_done at every chunk (all triggers)
+        if self.proprio is not None:
+            self.proprio.reset()
+        if self.head is not None:
+            self.head.reset()
         self._reset_counters()
         self._close_recording(None)          # an episode that ended without on_trial_end
 
@@ -176,6 +202,8 @@ class Model(ModelTemplate):
         oracle = obs.get("oracle") if isinstance(obs, dict) else None
         if oracle is not None:
             self.stages_done = int(oracle.get("stages_done", 0))
+        if self.proprio is not None:
+            self.proprio.update(state)       # raw ee16 state, every env step (like the training rule)
         self.policy.observe(state, rgb)
         self._record_frame(rgb, state)
         self.n_steps += 1
@@ -188,7 +216,15 @@ class Model(ModelTemplate):
                 and not self.policy.memory.force_empty:
             raise RuntimeError(self._error_msg("stage-memory run but no obs['oracle']: "
                                                "evaluate with scripts/step24_eval_with_oracle.sh"))
-        chunk = self.policy.predict_chunk(self.gen, stages_done=self.stages_done)
+        self.oracle_trace.append(self.stages_done)
+        if self.trigger == "oracle":
+            chunk = self.policy.predict_chunk(self.gen, stages_done=self.stages_done)
+        elif self.trigger == "proprio":
+            chunk = self.policy.predict_chunk(self.gen, stages_done=self.proprio.done)
+        elif self.trigger == "time":
+            chunk = self.policy.predict_chunk(self.gen, stages_done=self.time_trig.stages_done(self.n_steps - 1))
+        else:
+            chunk = self.policy.predict_chunk(self.gen, head=self.head)
         self.n_chunks += 1
         if self.record:
             self._rec_actions.extend(chunk[: self.horizon])   # may run past the episode end
@@ -204,7 +240,10 @@ class Model(ModelTemplate):
                "wall_s": round(time.time() - self.t_start, 1),
                "run_dir": str(self.run_dir), "ckpt_step": self.policy.checkpoint_step,
                "noise_seed": self.cfg.get("noise_seed"), "eval_seed_arg": self.cfg.get("seed"),
-               "stages_done": self.stages_done,
+               "stages_done": self.stages_done,          # oracle (all triggers, when available)
+               "stage_trigger": self.trigger,
+               "oracle_trace": getattr(self, "oracle_trace", None),
+               "head_log": list(self.head.log) if self.head is not None else None,
                "memory_writes": list(self.policy.memory.log) if self.policy.memory is not None else None,
                "memory_override": self._opt(self.cfg, "memory_override", "LILA_MEMORY_OVERRIDE"),
                "time": time.strftime("%Y-%m-%d %H:%M:%S")}

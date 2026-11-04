@@ -143,28 +143,71 @@ class LiLaWAMPolicy:
         return np.stack([buf[max(0, n - 1 + k)] for k in self.state_offsets])
 
     # --------------------------------------------------------------- inference
+    def _inputs(self, generator):
+        state = torch.from_numpy(self._state_history()).to(self.device, self.dtype)[None]
+        px = torch.from_numpy(to_model_input(self.rgb, self.image_size)).to(self.device, self.dtype)[None]
+        qpos = self.model.normalize_state(state)
+        feats = self.model.get_vision_features(px)
+        x = torch.randn((1, self.chunk, self.action_dim), device=self.device, dtype=self.dtype,
+                        generator=generator)
+        ts = torch.linspace(0, 1, self.n_steps + 1, device=self.device, dtype=self.dtype)
+        return px, qpos, feats, x, ts
+
+    def _foresight(self, px, qpos, feats, x, ts):
+        """Phase-2 switch-head inputs with the CURRENT memory (before this chunk's write):
+        last-layer CLS of the frame, and the foresight local change = mean predicted future
+        patch feature (first flow step, t=0) - mean current patch feature of the same DINOv3
+        layer. Also returns the first-step velocity so it can be reused if nothing is written."""
+        from .stage_memory import frame_cls
+        cls_now = frame_cls(self.model.vision_encoder, px, self.device, self.dtype)[0]
+        cur = self.model.get_future_target_features(px).float().mean(dim=1)
+        self.action_model.set_memory_input(*self.memory.tensors(self.device, self.dtype))
+        try:
+            out = lila_api.forward_full(self.action_model, ts[0][None], x, qpos, feats, self.task_cond)
+        finally:
+            self.action_model.clear_memory_input()
+        delta = (lila_api.foresight_patch_mean(self.action_model, out["cond_tokens"]) - cur)[0]
+        return cls_now, delta.cpu().numpy(), out["final_pred"]
+
     @torch.no_grad()
-    def predict_chunk(self, generator: torch.Generator | None = None, stages_done: int | None = None) -> np.ndarray:
-        """``stages_done``: completed-stage count from the eval oracle (stage memory only)."""
+    def stage_features(self, generator: torch.Generator | None = None):
+        """(CLS, foresight change) for the observed frame with the memory as currently set
+        (offline feature extraction for the switch head, scripts/step28)."""
+        if self.memory is None:
+            raise RuntimeError("stage_features needs a stage-memory run")
+        px, qpos, feats, x, ts = self._inputs(generator)
+        cls_now, delta, _ = self._foresight(px, qpos, feats, x, ts)
+        return cls_now, delta
+
+    @torch.no_grad()
+    def predict_chunk(self, generator: torch.Generator | None = None, stages_done: int | None = None,
+                      head=None) -> np.ndarray:
+        """``stages_done``: completed-stage count from an external trigger (oracle / proprio /
+        time). ``head``: a triggers.SwitchHead that decides the write itself (stage memory only)."""
         if not self.states or self.rgb is None:
             raise RuntimeError("observe() must be called (with an image) before predict_chunk()")
         if self.cfg.model.get("use_task_cond", False) and self.task_cond is None:
             raise RuntimeError("set_task() was not called")
-        state = torch.from_numpy(self._state_history()).to(self.device, self.dtype)[None]
-        px = torch.from_numpy(to_model_input(self.rgb, self.image_size)).to(self.device, self.dtype)[None]
-
-        qpos = self.model.normalize_state(state)
-        feats = self.model.get_vision_features(px)
+        px, qpos, feats, x, ts = self._inputs(generator)
+        v0 = None
         if self.memory is not None:
             from .stage_memory import frame_cls
-            self.memory.update(frame_cls(self.model.vision_encoder, px, self.device, self.dtype)[0], stages_done)
+            if head is not None:
+                k = self.memory.n_written
+                cls_now, delta, v_first = self._foresight(px, qpos, feats, x, ts)
+                stages_done = head.decide(cls_now, delta, k, self.memory._chunk)
+                if stages_done == k:
+                    v0 = v_first                     # memory unchanged: same first step
+            else:
+                cls_now = frame_cls(self.model.vision_encoder, px, self.device, self.dtype)[0]
+            self.memory.update(cls_now, stages_done)
             self.action_model.set_memory_input(*self.memory.tensors(self.device, self.dtype))
-        x = torch.randn((1, self.chunk, self.action_dim), device=self.device, dtype=self.dtype,
-                        generator=generator)
-        ts = torch.linspace(0, 1, self.n_steps + 1, device=self.device, dtype=self.dtype)
         try:
             for i in range(self.n_steps):
-                v = lila_api.predict_velocity(self.action_model, ts[i][None], x, qpos, feats, self.task_cond)
+                if i == 0 and v0 is not None:
+                    v = v0
+                else:
+                    v = lila_api.predict_velocity(self.action_model, ts[i][None], x, qpos, feats, self.task_cond)
                 x = x + v * (ts[i + 1] - ts[i])
         finally:
             if self.memory is not None:
