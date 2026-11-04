@@ -5,7 +5,7 @@ import copy
 import pytest
 import torch
 
-from rmbench_lila.learned_switch import _make_plan, attach_learned_switch
+from rmbench_lila.learned_switch import _make_plan, attach_learned_switch, soft_written
 from rmbench_lila.stage_memory import StageMemory
 
 
@@ -60,7 +60,7 @@ def test_straight_through_reaches_the_head(small_model):
     p = torch.sigmoid(m.switch_logit(torch.randn(1, 32), torch.tensor([0])))
     s = torch.ones(1)                                        # sampled switch
     n_st = s + p - p.detach()
-    w = (n_st[:, None] - torch.arange(3)[None]).clamp(0, 1)  # forward [1, 0, 0]
+    w = soft_written(n_st, 3)                                # forward [1, 0, 0]
     assert torch.equal(w.detach(), torch.tensor([[1.0, 0.0, 0.0]]))
     m.set_memory_input(torch.randn(1, 3, 2, 32), w)          # chunk c+1 uses the write
     m(**x)["final_pred"].sum().backward()
@@ -71,3 +71,12 @@ def test_plan_uses_whole_demos():
     plan = _make_plan([600, 590, 621, 585], steps=5, per_step=2, seed=0)
     for eps, n in plan:
         assert len(set(eps)) == 2 and n == min((([600, 590, 621, 585][e] - 1) // 16 + 1) for e in eps)
+
+
+def test_soft_written_gradient_at_integer_counts():
+    p = torch.tensor([0.3, 0.6], requires_grad=True)
+    n_st = torch.tensor([1.0, 2.0]) + p - p.detach()
+    w = soft_written(n_st, 4)
+    assert torch.equal(w.detach(), torch.tensor([[1.0, 0, 0, 0], [1.0, 1.0, 0, 0]]))
+    w.sum().backward()
+    assert torch.equal(p.grad, torch.tensor([2.0, 2.0]))   # slot just written + next free slot

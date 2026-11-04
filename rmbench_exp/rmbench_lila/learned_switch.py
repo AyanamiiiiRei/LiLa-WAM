@@ -11,7 +11,7 @@ No boundaries, labels, rules or oracle are used anywhere in training. Same memor
   * training unrolls whole demos chunk by chunk (t = 0, 16, 32, ...). The forward value of a
     switch is a Bernoulli sample s_c ~ p_c (at most num_slots writes); the backward uses the
     straight-through estimate s_c + p_c - sg(p_c). The written weight of slot n at chunk c' is
-    w_n = clamp(sum_{c<c'} s_c - n, 0, 1) (0 or 1 in the forward), so the action loss of later
+    w_n = clamp(sum_{c<c'} s_c - n, 0, 1) (0 or 1 in the forward; gradient via soft_written), so the action loss of later
     chunks tells the head whether an earlier/later switch would have helped;
   * no prior on WHERE to switch. On HOW OFTEN, one of:
       switch_cost (default design, task-independent): + switch_cost * (sum_c p_c) / C per demo,
@@ -88,6 +88,17 @@ def attach_learned_switch(action_model, num_slots: int, cls_dim: int, prior_rate
     action_model.__class__ = LearnedSwitchVLAModel
     action_model.switch = SwitchModule(action_model.hidden_dim, cls_dim, num_slots, prior_rate)
     action_model._switch_feat = None
+
+
+def soft_written(n_st: torch.Tensor, num_slots: int) -> torch.Tensor:
+    """Write weight of each slot from the straight-through switch count n_st (B,):
+    forward clamp(count - n, 0, 1) (exactly 0 or 1); backward d w_n / d n_st = 1 for the slot
+    just written (count - n = 1) and the next free slot (count - n = 0). torch.clamp gives
+    zero gradient exactly at its bounds, which is where an integer count always sits."""
+    ar = torch.arange(num_slots, device=n_st.device, dtype=n_st.dtype)[None]
+    nv = n_st.detach()[:, None] - ar
+    gate = ((nv >= 0) & (nv <= 1)).to(n_st.dtype)
+    return nv.clamp(0, 1) + gate * (n_st - n_st.detach())[:, None]
 
 
 # ----------------------------------------------------------------------- training
@@ -218,7 +229,7 @@ def train(cfg, run_dir: Path, device: str, dtype, init_from: str | None) -> str:
                 if count[b] < N:
                     cand[b, count[b], 0] = torch.from_numpy(start[b])
                     cand[b, count[b], 1] = torch.from_numpy(prev[b])
-            w = (n_st[:, None] - torch.arange(N, device=device)[None]).clamp(0, 1)
+            w = soft_written(n_st, N)
             am.set_memory_input(cand.to(device, dtype), w)
             with torch.autocast(**ac):
                 loss_c, info = wrapper(batch)
