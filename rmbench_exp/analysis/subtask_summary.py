@@ -3,8 +3,7 @@
   python analysis/subtask_summary.py [runs_dir]
 
 Per task: successes out of the episodes run (same seeds for every run), McNemar exact p of
-P1 and P2 vs the round-1 baseline (the warm start; P1/P2 were fine-tuned 40,000 more steps, no
-matched control was run), and for P1/P2 the mean
+P1 and P2 vs the round-1 baseline (same from-scratch recipe and steps: the matched comparison), and for P1/P2 the mean
 number of sub-task switches per episode (from the episode log). Pooled over tasks at the end.
 Also pastes the chooser reports (held-out demos) if present.
 """

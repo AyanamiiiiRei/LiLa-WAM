@@ -1,8 +1,8 @@
 #!/bin/bash
 # Sub-task design: everything, unattended, in the background (LiLaWAM env, RMBENCH_DATA set).
 #
-#   bash scripts/step40_subtask_all.sh [init_ckpt] [test_num=50] [eval_seed=0]
-#   (init_ckpt default: runs/baseline-seed0/checkpoints/step_0085928.pt)
+#   bash scripts/step40_subtask_all.sh [test_num=50] [eval_seed=0]
+#   P1 and P2 are trained FROM SCRATCH with the round-1 recipe (base.yaml), like baseline-seed0.
 #
 # Order (each step logs to runs/subtask_all.log; a failed step is logged and the next one runs):
 #   0. CLS caches for all 10 tasks (step21) + sub-task library (step36)
@@ -14,14 +14,12 @@
 # Rerun the same command to resume: finished trainings / evals are skipped.
 set -uo pipefail
 SUB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-INIT="${1:-${SUB}/runs/baseline-seed0/checkpoints/step_0085928.pt}"
-N="${2:-50}"; SEED="${3:-0}"
+N="${1:-50}"; SEED="${2:-0}"
 LOG="${SUB}/runs/subtask_all.log"
 TASKS=(battery_try blocks_ranking_try cover_blocks observe_and_pickup place_block_mat press_button
        put_back_block rearrange_blocks swap_T swap_blocks)
 cd "${SUB}"
 [[ -n "${RMBENCH_DATA:-}" ]] || { echo "set RMBENCH_DATA first"; exit 1; }
-[[ -f "${INIT}" ]] || { echo "no init checkpoint ${INIT}"; exit 1; }
 
 if [[ "${_SUBTASK_CHILD:-}" != "1" ]]; then
     _SUBTASK_CHILD=1 nohup bash "$0" "$@" >> "${LOG}" 2>&1 &
@@ -38,11 +36,7 @@ train() {   # $1 config, $2 run name
     tot="$(total_steps "${cfg}")"
     if [[ "$(last_step "${run}")" == "${tot}" ]]; then say "${run}: already trained"; return 0; fi
     say "train ${run} (${cfg})"
-    if [[ -f "runs/${run}/latest.pt" ]]; then
-        python -u scripts/step08_train.py --config "${cfg}" >> "runs/${run}.train.log" 2>&1
-    else
-        python -u scripts/step08_train.py --config "${cfg}" --init_from "${INIT}" >> "runs/${run}.train.log" 2>&1
-    fi
+    python -u scripts/step08_train.py --config "${cfg}" >> "runs/${run}.train.log" 2>&1   # new or resume
     [[ "$(last_step "${run}")" == "${tot}" ]] || { say "${run}: training did not finish (see runs/${run}.train.log)"; return 1; }
 }
 evaluate() {  # $1 run
@@ -50,7 +44,7 @@ evaluate() {  # $1 run
     _EVAL_ALL_CHILD=1 bash scripts/step09_eval_all.sh "$1" "${N}" "${SEED}" || say "eval $1 FAILED"
 }
 
-say "start (init ${INIT})"
+say "start (from scratch)"
 say "0. CLS caches + sub-task library"
 for t in "${TASKS[@]}"; do
     python scripts/step21_cache_cls.py --task "${t}" || say "CLS ${t} FAILED"

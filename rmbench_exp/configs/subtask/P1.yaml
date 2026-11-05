@@ -1,7 +1,8 @@
 # Sub-task design, plan 1 (joint): LiLa-WAM executor with sub-task VTT token + selected-memory
 # token, and the Sub Task Chooser trained TOGETHER with it (the chooser loss also trains the DiT).
-# All 10 RMBench tasks; warm start from the round-1 multi-task model (baseline-seed0, step 85,928).
-# Compare with configs/subtask/C.yaml (same fine-tuning without the sub-task parts).
+# All 10 RMBench tasks, trained FROM SCRATCH (frozen DINOv3 as always) with exactly the round-1
+# recipe of baseline-seed0 (the training section of base.yaml: 85,928 steps, batch 64,
+# lr 2e-4 -> 5e-5, ~17.4 epochs), so baseline-seed0 is the matched comparison.
 _base_: ../base.yaml
 experiment:
   name: sub_P1
@@ -14,12 +15,5 @@ model:
   variant: lila_wam_subtask
   subtask:
     num_mem: 12               # entry 0 = frame 0, + up to 11 finished sub-tasks (blocks_ranking_try: <= 10)
-    lambda_chooser: 0.1       # chooser loss weight (BCE end + CE next); L_fm ~ 0.003, L_ff ~ 0.1 at the start
+    lambda_chooser: 0.1       # chooser loss weight (BCE end + CE next)
     chooser: {d: 256, layers: 2, heads: 4}
-training:
-  total_steps: 40000          # fine-tuning from the multi-task model: 40,000 x 64 = 2.56 M samples ~ 8.4 epochs
-                              # of the 480 training demos (~304 k frames); ~9-10 h; same for P2
-  learning_rate: 1.0e-4
-  lr_min: 1.0e-5
-  warmup_steps: 200
-  save_every_steps: 10000
