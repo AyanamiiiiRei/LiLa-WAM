@@ -14,9 +14,9 @@
   换子任务类型，再用"决定后"的状态预测本块动作。训练与推理一致，无标签泄漏。
 - 方案一（P1，联合）：执行器与 Chooser 一起训练，总损失 = L_fm + 0.5·L_ff + 0.1·L_chooser，Chooser 损失也训练 DiT。
 - 方案二（P2，分开）：先只训练执行器（L_fm + 0.5·L_ff），冻结后单独训练 Chooser（`scripts/step38_train_chooser.py`）。
-- 不设单独的对照组（用户决定）：P1、P2 与第一轮基线（热启动点）比较；P1、P2 多训练了 20,000 步，这部分影响无法与子任务设计分开。
+- 不设单独的对照组（用户决定）：P1、P2 与第一轮基线（热启动点）比较；P1、P2 多训练了 40,000 步，这部分影响无法与子任务设计分开。
 - 本轮不含失败标签（演示中没有失败；见讨论记录），失败记忆与重做留到之后。
 - 评测：每组 10 个任务 × 50 次，种子与第一轮相同，配对比较（`analysis/subtask_summary.py`）。
 - 局限：子任务库用了全部 50 条演示（含每任务 2 条留出演示，只影响类型均值）；每组一个训练种子。
 
-运行：`bash scripts/step39_subtask_smoke.sh`（先检查）→ `bash scripts/step40_subtask_all.sh`（全部，后台，约 3 天）。
+运行：`bash scripts/step39_subtask_smoke.sh`（先检查）→ `bash scripts/step40_subtask_all.sh`（全部，后台，约 2.5 天）。

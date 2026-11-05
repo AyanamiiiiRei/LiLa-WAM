@@ -70,7 +70,7 @@ def evaluate(cfg, built, device, workers):
 def main():
     p = _common.parser(__doc__, config=False)
     p.add_argument("--run", required=True)
-    p.add_argument("--steps", type=int, default=3000)
+    p.add_argument("--steps", type=int, default=6000)   # x 64 ~ 20 epochs of the ~19 k grid frames
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--batch", type=int, default=64)
     p.add_argument("--eval_only", action="store_true")

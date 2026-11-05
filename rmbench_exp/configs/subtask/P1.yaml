@@ -17,8 +17,9 @@ model:
     lambda_chooser: 0.1       # chooser loss weight (BCE end + CE next); L_fm ~ 0.003, L_ff ~ 0.1 at the start
     chooser: {d: 256, layers: 2, heads: 4}
 training:
-  total_steps: 20000          # fine-tuning from the multi-task model (~4.5 h); same for P2 and C
+  total_steps: 40000          # fine-tuning from the multi-task model: 40,000 x 64 = 2.56 M samples ~ 8.4 epochs
+                              # of the 480 training demos (~304 k frames); ~9-10 h; same for P2
   learning_rate: 1.0e-4
   lr_min: 1.0e-5
   warmup_steps: 200
-  save_every_steps: 5000
+  save_every_steps: 10000
