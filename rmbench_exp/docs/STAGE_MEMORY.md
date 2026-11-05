@@ -296,3 +296,19 @@ oracle 在所有组中照常运行并逐块记录，用于比较写入时刻，�
 - 上限：用真实未来画面代替 foresight（CLS(t+32) − CLS(t)，相当于完美的 foresight），ARI 0.02。
   因此重新训练一个带 VTT_update 输入 token 的模型，VTT_update 本身的结构最多接近这个上限，预计不会出现阶段结构；
   训练可能改变的是 DiT 内部的表征（可用 step35 观察）。
+
+### VTT 位置 DiT 输出的结果（A / M / S，50 条演示，1903 个动作块）
+
+| 特征 | k-means ARI（阶段） | k-means ARI（时间四分位） |
+|---|---|---|
+| VTT token, A | 0.07 | 0.05 |
+| VTT token, M | 0.06 | 0.06 |
+| VTT token, S | 0.04 | 0.04 |
+| 当前帧 CLS | 0.07 | 0.03 |
+| 参照：时间四分位本身 | 0.52 | 1.00 |
+
+（用户机器上没有 scikit-learn，图为 PCA 而非 t-SNE：`docs/presentation/figures/vtt_token_pca_AMS.png`。）
+- 三个模型的 VTT token 都与当前帧 CLS 一样，与阶段几乎无关；PCA 图上只有"按按钮"在一端相对集中，移动 1/2/3 混在一起。
+- 关键对照是 M：它的记忆槽里有正确的阶段信息（oracle），闭环中也确实用到了（M 26/50 vs M-empty 0/50），
+  但它的 VTT 位置输出同样没有阶段结构。说明阶段信息即使存在于模型中，也不一定表现在 VTT 这个位置上；
+  因此 A、S 在这里看不到结构，不能推出"模型内部没有阶段信息"，只能说"VTT 位置的输出没有"。
