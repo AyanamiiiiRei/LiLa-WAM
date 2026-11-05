@@ -53,7 +53,10 @@ def test_switch_token_layout_and_prior(small_model):
 def test_straight_through_reaches_the_head(small_model):
     m = copy.deepcopy(small_model)
     attach_learned_switch(m, 3, 32, 0.08)
-    torch.nn.init.normal_(m.stage_memory.mlp[-1].weight)
+    torch.manual_seed(0)
+    for name, prm in m.named_parameters():                   # the fresh DiT has zero-initialised
+        if not name.startswith("switch.head.2"):              # output/modulation layers: make every
+            torch.nn.init.normal_(prm, std=0.1)               # path non-trivial (keep the head's prior)
     x = _inputs(1)
     m.set_memory_input(torch.zeros(1, 3, 2, 32), torch.zeros(1, 3))
     m(**x)                                                   # chunk c: decide

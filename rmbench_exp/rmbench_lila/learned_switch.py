@@ -96,7 +96,7 @@ def soft_written(n_st: torch.Tensor, num_slots: int) -> torch.Tensor:
     just written (count - n = 1) and the next free slot (count - n = 0). torch.clamp gives
     zero gradient exactly at its bounds, which is where an integer count always sits."""
     ar = torch.arange(num_slots, device=n_st.device, dtype=n_st.dtype)[None]
-    nv = n_st.detach()[:, None] - ar
+    nv = n_st.detach().round()[:, None] - ar              # s + p - sg(p) is 1 only up to rounding
     gate = ((nv >= 0) & (nv <= 1)).to(n_st.dtype)
     return nv.clamp(0, 1) + gate * (n_st - n_st.detach())[:, None]
 
