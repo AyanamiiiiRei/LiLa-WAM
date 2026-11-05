@@ -10,8 +10,7 @@
 #   2. train P2 executor, then its chooser (step38)  configs/subtask/P2.yaml
 #   3. closed-loop eval of P1, then P2: all 10 tasks x test_num, same seeds as round 1 (step09)
 #   4. chooser report of P1 on held-out demos (step38 --eval_only)
-#   5. train + eval the control C (same fine-tuning, no sub-task parts)  configs/subtask/C.yaml
-#   6. analysis/subtask_summary.py -> runs/subtask_summary.md
+#   5. analysis/subtask_summary.py -> runs/subtask_summary.md
 # Rerun the same command to resume: finished trainings / evals are skipped.
 set -uo pipefail
 SUB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -69,7 +68,6 @@ fi
 [[ ${P2_OK} == 0 ]] && evaluate sub_P2-seed0
 [[ ${P1_OK} == 0 && ! -f runs/sub_P1-seed0/chooser_report.md ]] && \
     { python -u scripts/step38_train_chooser.py --run runs/sub_P1-seed0 --eval_only >> runs/sub_P1-seed0.chooser.log 2>&1 || say "P1 chooser report FAILED"; }
-train configs/subtask/C.yaml sub_C-seed0 && evaluate sub_C-seed0
 say "summary"
 python analysis/subtask_summary.py runs 2>&1 | tee runs/subtask_summary.md
 say "all done"

@@ -3,7 +3,8 @@
   python analysis/subtask_summary.py [runs_dir]
 
 Per task: successes out of the episodes run (same seeds for every run), McNemar exact p of
-P1 vs C and P2 vs C (C = the same fine-tuning without sub-task parts), and for P1/P2 the mean
+P1 and P2 vs the round-1 baseline (the warm start; P1/P2 were fine-tuned 20,000 more steps, no
+matched control was run), and for P1/P2 the mean
 number of sub-task switches per episode (from the episode log). Pooled over tasks at the end.
 Also pastes the chooser reports (held-out demos) if present.
 """
@@ -13,8 +14,7 @@ import sys
 from pathlib import Path
 
 R = Path(sys.argv[1] if len(sys.argv) > 1 else "runs")
-RUNS = {"baseline (round 1)": "baseline-seed0", "C (control)": "sub_C-seed0",
-        "P1 (joint)": "sub_P1-seed0", "P2 (separate)": "sub_P2-seed0"}
+RUNS = {"baseline (round 1)": "baseline-seed0", "P1 (joint)": "sub_P1-seed0", "P2 (separate)": "sub_P2-seed0"}
 TASKS = ["observe_and_pickup", "put_back_block", "swap_T", "rearrange_blocks", "press_button", "swap_blocks",
          "battery_try", "cover_blocks", "place_block_mat", "blocks_ranking_try"]
 
@@ -43,7 +43,7 @@ def mcnemar(X, Y, keys):
 
 
 data = {name: load(run) for name, run in RUNS.items()}
-head = "| task | " + " | ".join(RUNS) + " | P1 vs C (only P1 / only C, p) | P2 vs C | switches/ep P1, P2 |"
+head = "| task | " + " | ".join(RUNS) + " | P1 vs baseline (only P1 / only base, p) | P2 vs baseline | switches/ep P1, P2 |"
 print(head)
 print("|---" * (len(RUNS) + 4) + "|")
 pooled = {n: [0, 0] for n in RUNS}
@@ -57,7 +57,7 @@ for t in TASKS + ["ALL"]:
         s = sum(d[k]["success"] for k in ks)
         cells.append(f"{s}/{len(ks)}" if ks else "-")
     cmp = []
-    C = data["C (control)"]
+    C = data["baseline (round 1)"]
     for name in ("P1 (joint)", "P2 (separate)"):
         P = data[name]
         if C is None or P is None:
