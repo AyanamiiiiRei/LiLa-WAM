@@ -10,14 +10,10 @@ Features compared (one vector per chunk):
                             that only matches time does not show stage knowledge)
 Stage labels (boundaries_gt.json) are used only to EVALUATE.
 
-  1. linear probe (softmax regression, inputs standardised on the training part):
-       train demos -> held-out demos accuracy, and 10-fold leave-demos-out CV accuracy (all 50)
-  2. CV accuracy on the "time-ambiguous" chunks, i.e. those the time probe gets wrong
-     (near stage ends): only here can a feature show stage information beyond time
-  3. the decisive moments: chunk right after move 2 vs right after move 3 (same scene layout,
-     different next step): leave-one-demo-out accuracy of a binary probe
-  4. unsupervised: k-means (k = 4) on the first 50 principal components -> ARI with the stages
-Figures: t-SNE (or PCA if scikit-learn is missing) coloured by stage and by time.
+Only two checks (user decision):
+  1. unsupervised: k-means (k = 4) on the first 50 principal components -> ARI with the stages
+     (and with time quartiles)
+  2. t-SNE (or PCA if scikit-learn is missing) coloured by stage and by time
 Output: printed tables + artifacts/stage_memory/<task>/vtt_tokens/vtt_token_analysis.md (+ .png)
 """
 from __future__ import annotations
@@ -116,50 +112,16 @@ def main():
     feats["current-frame CLS"] = np.concatenate([ref[n]["cls"] for n in names])
     feats["time (chunk index)"] = np.eye(chunk.max() + 1)[chunk].astype(np.float32)
 
-    tr, te = split == "train", split == "heldout"
-    folds = np.arange(len(names)) % 10
-    rng = np.random.default_rng(0)
-    rng.shuffle(folds)
-    fold_of = folds[demo]
-
-    def cv_pred(X):
-        pred = np.zeros_like(y)
-        for f in range(10):
-            m = fold_of == f
-            pred[m] = softmax_probe(X[~m], y[~m], X[m], N_STAGES)
-        return pred
-
-    preds = {k: cv_pred(X) for k, X in feats.items()}
-    amb = preds["time (chunk index)"] != y                       # chunks the time probe gets wrong
-
-    # decisive moments: first chunk after move 2 / after move 3 ends (stage 2 start / stage 3 start)
-    rows_dec, lab_dec, dem_dec = [], [], []
-    off = np.concatenate([[0], np.cumsum([len(ref[n]["t"]) for n in names])[:-1]])
-    for i, n in enumerate(names):
-        st = ref[n]["stage"]
-        for s_, l_ in ((2, 0), (3, 1)):
-            idx = np.where(st == s_)[0]
-            if len(idx):
-                rows_dec.append(off[i] + idx[0]); lab_dec.append(l_); dem_dec.append(i)
-    rows_dec, lab_dec, dem_dec = np.array(rows_dec), np.array(lab_dec), np.array(dem_dec)
-
-    lines = [f"# VTT-position token analysis ({args.task}; runs: {', '.join(runs)})", "",
-             f"{len(names)} demos ({tr.sum()} train / {te.sum()} held-out chunks); 4 stages; chance by majority "
-             f"class {np.bincount(y).max() / len(y):.2f}", "",
-             "| feature | probe: train -> held-out | probe: 10-fold CV (all demos) | CV on time-ambiguous chunks "
-             f"(n={amb.sum()}) | after move 2 vs after move 3 (LODO, n={len(rows_dec)}) | k-means ARI |",
-             "|---|---|---|---|---|---|"]
+    lines = [f"# VTT-position token: unsupervised structure ({args.task}; runs: {', '.join(runs)})", "",
+             f"{len(names)} demos, {len(y)} chunks; k-means (k = 4) on the first 50 principal components "
+             "(inputs standardised); ARI with the 4 stages and with time quartiles", "",
+             "| feature | ARI with stages | ARI with time quartiles |", "|---|---|---|"]
+    tq = np.digitize(chunk, np.quantile(chunk, [0.25, 0.5, 0.75]))
     for k, X in feats.items():
-        acc_te = (softmax_probe(X[tr], y[tr], X[te], N_STAGES) == y[te]).mean()
-        acc_cv = (preds[k] == y).mean()
-        acc_amb = (preds[k][amb] == y[amb]).mean() if amb.any() else float("nan")
-        Xd = X[rows_dec]
-        pd_ = np.array([softmax_probe(Xd[dem_dec != d], lab_dec[dem_dec != d], Xd[dem_dec == d], 2)
-                        for d in np.unique(dem_dec)], dtype=object)
-        acc_dec = np.mean(np.concatenate(pd_) == np.concatenate([lab_dec[dem_dec == d] for d in np.unique(dem_dec)]))
         Z = pca((X - X.mean(0)) / (X.std(0) + 1e-6), min(50, X.shape[1]))
-        a = ari(kmeans(Z, N_STAGES), y)
-        lines.append(f"| {k} | {acc_te:.2f} | {acc_cv:.2f} | {acc_amb:.2f} | {acc_dec:.2f} | {a:.2f} |")
+        lab = kmeans(Z, N_STAGES)
+        lines.append(f"| {k} | {ari(lab, y):.2f} | {ari(lab, tq):.2f} |")
+    lines.append(f"| (reference) time quartiles themselves | {ari(tq, y):.2f} | 1.00 |")
     text = "\n".join(lines) + "\n"
     (root / "vtt_token_analysis.md").write_text(text)
     print(text)

@@ -282,3 +282,17 @@ oracle 在所有组中照常运行并逐块记录，用于比较写入时刻，�
 - "超出时间" = 在时间探针判断错的块上，token 的准确率明显高于 0.5（这些块大多在相邻两个阶段之间）且高于 CLS。
   不满足时，即使 token 分高，也只能说它编码了与时间一致的进度。
 - 训练演示上 A 有图像记忆捷径，所以以交叉验证/留出结果为准。
+
+用户决定：VTT 位置 token 只做两项检查（k-means ARI、t-SNE 图），`analysis/vtt_token_analysis.py` 已相应精简。
+
+### VTT_update = VTT − VTT_t（VTT_t = foresight 预测 − 当前画面）：用现有模型 A 的离线检查
+
+- 数学上：VTT 对 swap_blocks 是常数向量，VTT_update = 常数 − VTT_t，只是 VTT_t 的反号加平移；
+  k-means 与 t-SNE 只依赖样本之间的距离，因此 VTT_update 的结构与 VTT_t 完全相同（实测 ARI 都是 0.066）。
+  另外 VTT 在最后一层 CLS 空间，foresight 在第 −4 层 patch 特征空间，两者相减需要先统一到同一空间；这不影响上述结论。
+- A 的 VTT_t（step31 已保存的 foresight 局部变化，50 条演示）：k-means ARI 0.07，与当前帧 CLS（0.07）相同；
+  t-SNE 中只有"按按钮"单独成团，移动 1/2/3 混在一起，团块对应手臂所处的动作片段而非阶段
+  （`docs/presentation/figures/vtt_update_tsne_A.png`）。
+- 上限：用真实未来画面代替 foresight（CLS(t+32) − CLS(t)，相当于完美的 foresight），ARI 0.02。
+  因此重新训练一个带 VTT_update 输入 token 的模型，VTT_update 本身的结构最多接近这个上限，预计不会出现阶段结构；
+  训练可能改变的是 DiT 内部的表征（可用 step35 观察）。
