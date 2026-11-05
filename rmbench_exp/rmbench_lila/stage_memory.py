@@ -112,7 +112,7 @@ def _forward_with_memory(self, t, noisy_actions, qpos_history=None, dino_feature
         cond_tokens = x[:, self.action_len:, :]
     self._last_layout = {"dino_start": dino_start, "dino_end": dino_end, "seq_len": x.shape[1]}
     # outputs of the appended tokens (memory, and the learned-switch token in phase 3)
-    return {"final_pred": final_pred, "cond_tokens": cond_tokens, "tail": x[:, dino_end:, :]}
+    return {"final_pred": final_pred, "cond_tokens": cond_tokens, "tail": x[:, dino_end:, :], "seq": x}
 
 
 def attach_stage_memory(action_model, num_slots: int, cls_dim: int) -> None:

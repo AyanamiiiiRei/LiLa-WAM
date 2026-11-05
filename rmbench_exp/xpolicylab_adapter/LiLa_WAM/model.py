@@ -252,6 +252,7 @@ class Model(ModelTemplate):
                "oracle_trace": getattr(self, "oracle_trace", None),
                "head_log": list(self.head.log) if self.head is not None else None,
                "switch_log": list(self.policy.switch_log) if self.policy.learned_switch else None,
+               "subtask_log": list(self.policy.subtask.log) if self.policy.subtask is not None else None,
                "memory_writes": list(self.policy.memory.log) if self.policy.memory is not None else None,
                "memory_override": self._opt(self.cfg, "memory_override", "LILA_MEMORY_OVERRIDE"),
                "time": time.strftime("%Y-%m-%d %H:%M:%S")}

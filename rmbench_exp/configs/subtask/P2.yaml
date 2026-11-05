@@ -1,0 +1,8 @@
+# Sub-task design, plan 2 (separate): the executor is trained alone (lambda_chooser 0); the
+# chooser is trained afterwards on the frozen executor (scripts/step38_train_chooser.py).
+_base_: P1.yaml
+experiment:
+  name: sub_P2
+model:
+  subtask:
+    lambda_chooser: 0.0

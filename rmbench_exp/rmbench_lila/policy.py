@@ -77,6 +77,12 @@ class LiLaWAMPolicy:
                                             str(sm.get("mode", "stage")), force_empty=memory_override == "empty")
         elif memory_override is not None:
             raise ValueError("memory_override given but this run has no stage memory")
+        # Sub-task design (rmbench_lila/subtask.py): the model's own chooser picks sub-tasks.
+        self.subtask = None
+        if models.uses_subtask(cfg):
+            from .subtask import Library, OnlineSubtask
+            self.subtask = OnlineSubtask(Library(cfg.dataset.subtask.library_dir), int(cfg.model.subtask.num_mem),
+                                         built.dino_hidden_size)
 
         self.state_offsets = list(cfg.dataset.indices_config.state_indices)
         self.image_size = tuple(OmegaConf.to_container(cfg.dataset.image_size))
@@ -112,6 +118,9 @@ class LiLaWAMPolicy:
     # ----------------------------------------------------------------- episode
     def set_task(self, task: str) -> None:
         self.task = task
+        if self.subtask is not None:
+            self.subtask.set_task(task)
+            self.subtask.reset()
         if not self.cfg.model.get("use_task_cond", False):
             return
         p = self.vtt_dir / task / "task_cond.npy" if self.vtt_dir else None
@@ -126,6 +135,8 @@ class LiLaWAMPolicy:
         self.rgb = self.first_rgb = None
         if self.memory is not None:
             self.memory.reset()
+        if self.subtask is not None:
+            self.subtask.reset()
         self.switch_log = []
 
     def observe(self, state: np.ndarray, rgb: np.ndarray | None = None) -> None:
@@ -171,6 +182,47 @@ class LiLaWAMPolicy:
             self.action_model.clear_memory_input()
         delta = (lila_api.foresight_patch_mean(self.action_model, out["cond_tokens"]) - cur)[0]
         return cls_now, delta.cpu().numpy(), out["final_pred"]
+
+    def _predict_subtask(self, px, qpos, feats, x, ts) -> np.ndarray:
+        """Sub-task design: pre-decision forward (flow time 0) -> chooser; on "ended" write the
+        memory entry with this chunk's CLS and switch type; then act with the post-decision state."""
+        from .stage_memory import frame_cls
+        st = self.subtask
+        cls_now = frame_cls(self.model.vision_encoder, px, self.device, self.dtype)[0]
+        if st.start is None:                                   # first chunk: entry 0 = frame 0
+            st.entries.append((cls_now, cls_now))
+            st.start = cls_now
+        am = self.action_model
+        am.set_subtask_input(*st.tensors(self.device, self.dtype))
+        try:
+            out = lila_api.forward_full(am, ts[0][None], x, qpos, feats, self.task_cond)
+            end_logit, nxt = am.chooser(out["seq"], torch.from_numpy(cls_now)[None].to(self.device),
+                                        torch.tensor([st.cur], device=self.device),
+                                        torch.from_numpy(st.tmask)[None].to(self.device))
+        finally:
+            am.clear_subtask_input()
+        p_end = float(torch.sigmoid(end_logit)[0])
+        v0 = out["final_pred"]
+        if p_end > 0.5 and len(st.entries) < 64:
+            st.entries.append((st.start, cls_now))
+            st.start = cls_now
+            new = int(nxt[0].argmax())
+            st.log.append((st.chunk, st.cur, new, round(p_end, 3)))
+            st.cur = new
+            v0 = None                                          # inputs changed: recompute step 0
+        st.chunk += 1
+        am.set_subtask_input(*st.tensors(self.device, self.dtype))
+        try:
+            for i in range(self.n_steps):
+                v = v0 if (i == 0 and v0 is not None) else \
+                    lila_api.predict_velocity(am, ts[i][None], x, qpos, feats, self.task_cond)
+                x = x + v * (ts[i + 1] - ts[i])
+        finally:
+            am.clear_subtask_input()
+        act = self.model.denormalize_action(x)[0].float().cpu().numpy()
+        if self.smooth:
+            act = bspline_smooth(act, 3, self.smooth_pts)
+        return act.astype(np.float32)
 
     def _predict_learned(self, px, qpos, feats, x, ts) -> np.ndarray:
         """Phase 3: act with the current memory; the switch probability is averaged over the flow
@@ -219,6 +271,8 @@ class LiLaWAMPolicy:
         if self.cfg.model.get("use_task_cond", False) and self.task_cond is None:
             raise RuntimeError("set_task() was not called")
         px, qpos, feats, x, ts = self._inputs(generator)
+        if self.subtask is not None:
+            return self._predict_subtask(px, qpos, feats, x, ts)
         if self.learned_switch:
             return self._predict_learned(px, qpos, feats, x, ts)
         v0 = None

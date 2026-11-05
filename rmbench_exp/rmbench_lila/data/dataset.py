@@ -21,6 +21,7 @@ from ..episodes import EpisodeReader, EpisodeRef, select_episodes
 from ..schema import STATE_GROUP, get_state_layout
 from . import features as _features  # noqa: F401  (registers built-in features)
 from . import stage_features as _stage_features  # noqa: F401  (stage-memory feature)
+from . import subtask_features as _subtask_features  # noqa: F401  (sub-task feature)
 from .registry import FEATURES
 
 logger = logging.getLogger(__name__)

@@ -28,6 +28,8 @@ PATH_KEYS = (
     "experiment.output_root",
     "dataset.stage_memory.boundaries",
     "dataset.stage_memory.cls_dir",
+    "dataset.subtask.library_dir",
+    "dataset.subtask.cls_root",
 )
 
 _RESOLVERS_REGISTERED = False

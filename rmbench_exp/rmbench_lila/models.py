@@ -59,6 +59,28 @@ def _build_lila_wam_learned_switch(cfg, norm_stats_path, device, dtype, training
     return built
 
 
+@MODELS.register("lila_wam_subtask")
+def _build_lila_wam_subtask(cfg, norm_stats_path, device, dtype, training):
+    """Sub-task design (rmbench_lila/subtask.py): executor tokens + Sub Task Chooser.
+    Config: model.subtask {num_mem, lambda_chooser, chooser:{d, layers, heads}}, dataset.subtask."""
+    from . import lila_api
+    from .subtask import Library, attach_subtask, attach_subtask_wrapper
+    st = cfg.model.get("subtask", None)
+    if not st:
+        raise ValueError("variant lila_wam_subtask needs model.subtask")
+    lib = Library(cfg.dataset.subtask.library_dir)
+    built = lila_api.build_model(cfg, norm_stats_path, device, dtype, training)
+    ch = st.get("chooser", {}) or {}
+    attach_subtask(built.action_model, lib.n, int(st.num_mem), built.dino_hidden_size,
+                   {k: int(ch[k]) for k in ("d", "layers", "heads") if k in ch})
+    attach_subtask_wrapper(built.wrapper, built.action_model, float(st.get("lambda_chooser", 0.0)))
+    return built
+
+
+def uses_subtask(cfg: DictConfig) -> bool:
+    return cfg.model.get("variant", "lila_wam") == "lila_wam_subtask"
+
+
 def uses_learned_switch(cfg: DictConfig) -> bool:
     return cfg.model.get("variant", "lila_wam") == "lila_wam_learned_switch"
 
@@ -71,10 +93,10 @@ def uses_stage_memory(cfg: DictConfig) -> bool:
 def load_init_weights(action_model, state_dict: dict, cfg: DictConfig) -> None:
     """Warm start. The original model loads strictly; a stage-memory model may only be
     missing its new `stage_memory.*` parameters (trained from scratch, as the plan says)."""
-    if not uses_stage_memory(cfg):
+    if not uses_stage_memory(cfg) and not uses_subtask(cfg):
         action_model.load_state_dict(state_dict, strict=True)
         return
     res = action_model.load_state_dict(state_dict, strict=False)
-    bad_missing = [k for k in res.missing_keys if not k.startswith(("stage_memory.", "switch."))]
+    bad_missing = [k for k in res.missing_keys if not k.startswith(("stage_memory.", "switch.", "subtask.", "chooser."))]
     if bad_missing or res.unexpected_keys:
         raise RuntimeError(f"warm start mismatch: missing {bad_missing[:5]}..., unexpected {res.unexpected_keys[:5]}...")
