@@ -33,8 +33,8 @@ Controls: current-frame CLS and current-frame 4x4 patch grid (block 21) -- infor
 now must NOT be decodable from these, else the label is visible and the test is void;
 shuffled labels (permuted, 10x, same pipeline) = the real chance level.
 
-Probe: standardise -> L2 logistic regression (no PCA: it can drop a low-variance informative
-direction), C chosen by inner CV; a negative result means "not linearly decodable from ~50 demos",
+Probe: standardise -> PCA keeping all components of the training fold (lossless for an L2 linear
+model; only for speed) -> L2 logistic regression, C chosen by inner CV; a negative result means "not linearly decodable from ~50 demos",
 not "absent"; GroupKFold(5) by episode; accuracy with a 95% bootstrap CI over episodes.
 
 Also: attention of the selected-memory token over the entries (which entry is read), and the
@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import copy
 import json
+import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -203,6 +204,7 @@ def image_candidates(wrapper, am, px):
 
 # ------------------------------------------------------------------ probe
 def probe(X, y, groups, seed=0, n_shuffle=10):
+    from sklearn.decomposition import PCA
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import GridSearchCV, GroupKFold
     from sklearn.pipeline import make_pipeline
@@ -223,7 +225,10 @@ def probe(X, y, groups, seed=0, n_shuffle=10):
             if len(np.unique(labels[tr])) < 2:
                 pred[te] = labels[tr][0]
                 continue
-            pipe = make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=C or 1.0))
+            # PCA keeping ALL components of the training fold (<= #samples) is lossless for an
+            # L2 linear model (its weights lie in the span of the training samples) and makes it fast
+            pipe = make_pipeline(StandardScaler(), PCA(n_components=min(len(tr), X.shape[1])),
+                                 LogisticRegression(max_iter=3000, C=C or 1.0))
             if C is None:                    # inner CV for the regularisation strength
                 inner = GroupKFold(n_splits=min(3, len(np.unique(groups[tr]))))
                 try:
@@ -231,7 +236,8 @@ def probe(X, y, groups, seed=0, n_shuffle=10):
                                         cv=list(inner.split(X[tr], labels[tr], groups[tr]))).fit(X[tr], labels[tr])
                     chosen.append(pipe.best_params_["logisticregression__C"])
                 except ValueError:           # an inner fold with one class
-                    pipe = make_pipeline(StandardScaler(), LogisticRegression(max_iter=3000, C=1e-2)).fit(X[tr], labels[tr])
+                    pipe = make_pipeline(StandardScaler(), PCA(n_components=min(len(tr), X.shape[1])),
+                                         LogisticRegression(max_iter=3000, C=1e-2)).fit(X[tr], labels[tr])
             else:
                 pipe.fit(X[tr], labels[tr])
             pred[te] = pipe.predict(X[te])
@@ -333,6 +339,7 @@ def main():
             acc["cur_cls"].append(b["sub_cls"].float().numpy())
             batches.append({k: b[k] for k in ("sub_mem_pre", "sub_mask_pre", "sub_mem", "sub_mask", "sub_cls")})
         S = {k: np.concatenate(v) for k, v in acc.items()}
+        print(f"[{task}] model passes done, extracting stage-(1) candidates", flush=True)
 
         # stage (1) candidates on the information frames, and current-frame controls
         cand = defaultdict(list)
@@ -353,6 +360,7 @@ def main():
                 cur = image_candidates(wrapper, am, torch.from_numpy(to_model_input(r.read_frames(cam, [d["t"]])[0], size))[None])
             cand["CONTROL_current_patch_b21_4x4"].append(cur["patch_b21_4x4"][0])
         C = {k: np.stack(v) for k, v in cand.items()}
+        print(f"[{task}] candidates done, probing", flush=True)
 
         groups = np.array([d["e"] for d in dec])
         info = np.array([d["info"] for d in dec])
@@ -373,7 +381,9 @@ def main():
         lines += ["### Stages: is the information decodable? (label = info)", "",
                   "| features | accuracy [95% CI] | shuffled mean (p95) | majority | samples / episodes |", "|---|---|---|---|---|"]
         for name, X in stage_feats.items():
+            t0 = time.time()
             r = probe(X, info, groups)
+            print(f"  [{task}] {name}: {fmt(r)}  ({time.time() - t0:.0f} s)", flush=True)
             T["stages"][name] = r
             lines.append(f"| {name} | {fmt(r)} |")
         if pre and task == "cover_blocks":
@@ -387,7 +397,9 @@ def main():
         for name, X in C.items():
             if name.startswith("CONTROL"):
                 continue
+            t0 = time.time()
             r = probe(X[uniq], info[uniq], groups[uniq])
+            print(f"  [{task}] candidate {name}: {fmt(r)}  ({time.time() - t0:.0f} s)", flush=True)
             T["candidates"][name] = r
             lines.append(f"| {name} | {fmt(r)} |")
 
