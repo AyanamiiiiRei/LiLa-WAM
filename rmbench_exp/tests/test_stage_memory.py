@@ -155,3 +155,44 @@ def test_online_memory_first_frame_and_empty():
     for i in range(5):
         e.update(cls[i], stages_done=3)
     assert not e.written.any()
+
+
+# ------------------------------------------------------------------ all tasks (sub-task library)
+def test_library_stage_feature(tmp_path):
+    """configs/stage_memory/M_all.yaml: stages = annotated sub-tasks; the last one is never a
+    slot; CLS read from <cls_root>/<task>/cls; slots written only once their stage ended."""
+    import json
+    from types import SimpleNamespace
+
+    from omegaconf import OmegaConf
+
+    from rmbench_lila.data.features import SampleContext
+    from rmbench_lila.data.stage_features import StageMemoryFeature
+    from rmbench_lila.episodes import EpisodeRef
+
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    np.savez(lib / "library.npz", names=np.array(["a", "b", "c"]), task=np.array(["t"] * 3),
+             vtt=np.zeros((3, 4), np.float32))
+    # raw sub-task ends 40, 100 -> grid ends 48, 112; the third sub-task ends the task
+    (lib / "segments.json").write_text(json.dumps({"t": {"episode_0000000": [[0, 0, 40], [1, 41, 100], [2, 101, 199]]}}))
+    cls = np.arange(200, dtype=np.float32)[:, None].repeat(4, 1)
+    (tmp_path / "cls" / "t" / "cls").mkdir(parents=True)
+    np.save(tmp_path / "cls" / "t" / "cls" / "episode_0000000.npy", cls)
+    cfg = OmegaConf.create({"model": {"stage_memory": {"enabled": True, "mode": "stage", "num_slots": 4}},
+                            "dataset": {"stage_memory": {"library_dir": str(lib), "cls_root": str(tmp_path / "cls"),
+                                                         "jitter_p": 0.0}}})
+    f = StageMemoryFeature(cfg, train=False)
+    ref = EpisodeRef(task="t", path=str(tmp_path / "episode_0000000.hdf5"), episode_id=0)
+
+    def at(t):
+        return f(SampleContext(reader=SimpleNamespace(), ref=ref, anchor=t, length=200, train=False))
+
+    assert at(47)["stage_mem_written"].tolist() == [False] * 4
+    o = at(48)
+    assert o["stage_mem_written"].tolist() == [True, False, False, False]
+    assert o["stage_mem_cls"][0, :, 0].tolist() == [0.0, 48.0]
+    o = at(199)
+    assert o["stage_mem_written"].tolist() == [True, True, False, False]     # last sub-task: no slot
+    assert o["stage_mem_cls"][1, :, 0].tolist() == [48.0, 112.0]
+    assert int(o["stage_id"]) == 2

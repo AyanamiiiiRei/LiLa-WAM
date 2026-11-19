@@ -332,3 +332,12 @@ oracle 在所有组中照常运行并逐块记录，用于比较写入时刻，�
   场景外观接近开局（‖CLS(t) − CLS(0)‖ 在三次移动结束时为 3.6 / 3.6 / 3.3，不随进度增大），因此无法区分进度。
 - 结论：递推 VTT_update 在这个任务上本质上是一个计时器。若作为输入 token 训练，模型可能借它提高成功率
   （第 2 期 M-time 说明计时器在本任务上够用），但那不能说明模型学到了阶段。图：`docs/presentation/figures/vtt_update_recursive_A.png`。
+
+## 全部任务（2026-11-19 起，`configs/stage_memory/M_all.yaml`）
+
+问题：第 1 期在 swap_blocks 上有效的"按阶段写入的记忆"，推广到全部 10 个任务后，闭环成功率是否高于基线？
+- 阶段 = 每条演示标注的子任务（`artifacts/subtasks`，与子任务方案相同的网格边界）；最后一个子任务结束任务，不写槽；10 个槽（blocks_ranking_try 最多 11 个子任务）。
+- 从 baseline-seed0 第 85,928 步热启动，8,000 步，lr 1e-4 → 1e-5（与第 1 期相同；在 10 任务数据上约 1.6 遍）；边界扰动 jitter_p 0.5。
+- 评测触发：计时器，每任务各阶段在训练演示中的平均结束时刻（`time_trigger_10task.json`，至少一半演示有的阶段才保留）。battery_try、blocks_ranking_try 的阶段数会变，press_button 的时长随按压次数变化，计时器在这三个任务上必然写错。
+- 没有对照组：与基线的差别也包含多训练 8,000 步的影响。
+- 运行：`bash scripts/step42_stage_all.sh`（数据检查 → 训练约 2 小时 → 10 任务评测约 16 小时 → `runs/stage_all_summary.md`）。

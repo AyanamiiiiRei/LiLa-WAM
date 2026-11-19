@@ -3,6 +3,9 @@
 Config:
   model.stage_memory:   {enabled, num_slots, mode: stage | first_frame}
   dataset.stage_memory: {boundaries: <boundaries_gt.json>, cls_dir: <step 21 output>, jitter_p: 0.5}
+                        or, for several tasks (stage = annotated sub-task, docs/SUBTASK.md):
+                        {library_dir: artifacts/subtasks, cls_root: artifacts/stage_memory, jitter_p}
+                        -> boundaries = Library.episode() grid ends, CLS from <cls_root>/<task>/cls
 
 Output per sample (anchor frame t):
   stage_mem_cls     (N, 2, D) float32  (first, last) CLS of every slot (zeros if not written)
@@ -22,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from ..stages import jitter_ends, load_boundaries, slots_at, stage_index
+from ..stages import GRID, jitter_ends, load_boundaries, slots_at, stage_index
 from .features import Feature
 from .registry import FEATURES
 
@@ -34,25 +37,43 @@ class StageMemoryFeature(Feature):
         sm, dsm = cfg.model.stage_memory, cfg.dataset.stage_memory
         self.mode = str(sm.get("mode", "stage"))
         self.n = int(sm.num_slots)
-        # loaded in both modes: "first_frame" uses them only for the per-stage loss log (stage_id)
-        self.boundaries = load_boundaries(dsm.boundaries)
-        self.cls_dir = Path(dsm.cls_dir)
+        self.library = None
+        if dsm.get("library_dir"):
+            # all tasks: the stages of a demo are its annotated sub-tasks (same grid ends the
+            # sub-task design uses), keyed by (task, file)
+            from ..subtask import Library
+            self.library = Library(dsm.library_dir)
+            self.cls_root = Path(dsm.cls_root)
+            self.boundaries = None
+        else:
+            # loaded in both modes: "first_frame" uses them only for the per-stage loss log (stage_id)
+            self.boundaries = load_boundaries(dsm.boundaries)
+            self.cls_dir = Path(dsm.cls_dir)
         self.jitter_p = float(dsm.get("jitter_p", 0.0)) if train else 0.0
         self._cls: dict[str, np.ndarray] = {}
         if self.mode == "first_frame" and self.n != 1:
             raise ValueError("stage_memory.mode=first_frame uses exactly one slot (num_slots: 1)")
 
-    def _episode_cls(self, path: str) -> np.ndarray:
+    def _episode_cls(self, path: str, task: str | None = None) -> np.ndarray:
         a = self._cls.get(path)
         if a is None:
-            f = self.cls_dir / (Path(path).stem + ".npy")
+            d = self.cls_root / task / "cls" if self.library is not None else self.cls_dir
+            f = d / (Path(path).stem + ".npy")
             if not f.is_file():
                 raise FileNotFoundError(f"CLS cache missing: {f} (run scripts/step21_cache_cls.py)")
             a = self._cls[path] = np.load(f).astype(np.float32)
         return a
 
+    def _stages(self, ref, length: int) -> list[list[int]]:
+        if self.library is None:
+            return self.boundaries[Path(ref.path).name]
+        _, ends = self.library.episode(ref.task, Path(ref.path).stem, length)
+        last_grid = ((length - 1) // GRID) * GRID
+        starts = [0] + list(ends)
+        return [[a, b] for a, b in zip(starts, list(ends) + [max(last_grid, starts[-1])])]
+
     def __call__(self, ctx):
-        cls = self._episode_cls(ctx.ref.path)
+        cls = self._episode_cls(ctx.ref.path, ctx.ref.task)
         if len(cls) != ctx.length:
             raise ValueError(f"{ctx.ref.path}: CLS cache has {len(cls)} frames, episode {ctx.length}")
         t = ctx.anchor
@@ -60,10 +81,12 @@ class StageMemoryFeature(Feature):
         if self.mode == "first_frame":
             out[0, 0] = out[0, 1] = cls[0]
             written = np.ones(1, bool)
-            sid = stage_index(t, self.boundaries[Path(ctx.ref.path).name])
+            sid = stage_index(t, self._stages(ctx.ref, ctx.length))
         else:
-            stages = self.boundaries[Path(ctx.ref.path).name]
-            ends = jitter_ends(stages, self.n, ctx.length, self.jitter_p, rng=random)
+            stages = self._stages(ctx.ref, ctx.length)
+            # library: the last sub-task ends the task and is never written as a slot
+            written_stages = stages[:-1] if self.library is not None else stages
+            ends = jitter_ends(written_stages, self.n, ctx.length, self.jitter_p, rng=random)
             pairs, written = slots_at(t, ends, self.n)
             for k, (a, b) in enumerate(pairs):
                 if written[k]:

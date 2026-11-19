@@ -1,0 +1,36 @@
+# Stage memory (group M of phase 1) on ALL 10 RMBench tasks, warm-started from baseline-seed0.
+# Stages = the annotated sub-tasks of each demo (artifacts/subtasks, the same grid ends the
+# sub-task design uses); slot k = (CLS at the start, CLS at the end) of stage k, written when
+# stage k ends; the last sub-task ends the task and is never written.
+# Same data split, norm stats and task VTTs as the baseline (base.yaml), so the closed-loop
+# results are paired with baseline-seed0 (same eval seeds).
+# Evaluation trigger: time (per-task mean stage ends of the training demos,
+# artifacts/stage_memory/<task>/time_trigger_10task.json, scripts/step42_stage_all.sh).
+# No control run: the comparison with baseline-seed0 also contains the effect of 8,000 extra
+# fine-tuning steps.
+_base_: ../base.yaml
+experiment:
+  name: sm_Mall
+  seed: 0
+dataset:
+  features: [state, action_chunk, image, future_image, task_cond, stage_memory]
+  stage_memory:
+    library_dir: artifacts/subtasks           # scripts/step36_subtask_library.py
+    cls_root: artifacts/stage_memory          # <cls_root>/<task>/cls (scripts/step21_cache_cls.py)
+    jitter_p: 0.5                             # +-1 chunk on each written boundary (training only), as M
+model:
+  variant: lila_wam_stage_memory
+  stage_memory:
+    enabled: true
+    mode: stage
+    num_slots: 10            # blocks_ranking_try has up to 11 sub-tasks -> 10 written slots
+training:
+  # as phase 1 (A/F/M): lr 1e-4 -> 1e-5 cosine, 200 warm-up steps, 8,000 steps, batch 64.
+  # On the 10-task data (316,786 samples) this is ~1.6 passes (phase 1: ~18 passes over swap_blocks).
+  learning_rate: 1.0e-4
+  lr_min: 1.0e-5
+  warmup_steps: 200
+  total_steps: 8000
+  batch_size: 64
+  grad_accum_steps: 1
+  save_every_steps: 2000

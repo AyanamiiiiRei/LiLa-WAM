@@ -105,14 +105,25 @@ class Model(ModelTemplate):
             raise ValueError(self._error_msg(f"stage_trigger={self.trigger} needs a stage-memory run"))
         task = self.cfg.get("task_name") or "swap_blocks"
         art = root / "artifacts" / "stage_memory" / task
+        self._trigger_root = root
         if self.trigger == "proprio":
             self.proprio = ProprioTrigger(int(self.policy.cfg.model.stage_memory.num_slots))
         elif self.trigger == "time":
-            ends = json.loads((art / "time_trigger.json").read_text())["ends_env_steps"]
-            self.time_trig = TimeTrigger(ends)
+            self.time_trig = self._load_time_trigger(task)
         elif self.trigger == "head":
             path = self._opt(self.cfg, "switch_head", "LILA_SWITCH_HEAD") or str(art / "switch_head.pt")
             self.head = SwitchHead(path)
+
+    def _load_time_trigger(self, task: str):
+        """Per-task time trigger (mean stage ends of the training demos). File name from
+        LILA_TIME_TRIGGER_FILE (default time_trigger.json, phase 2; the 10-task run uses
+        time_trigger_10task.json, scripts/step42_stage_all.sh)."""
+        from rmbench_lila.triggers import TimeTrigger
+        name = os.environ.get("LILA_TIME_TRIGGER_FILE") or "time_trigger.json"
+        f = self._trigger_root / "artifacts" / "stage_memory" / task / name
+        if not f.is_file():
+            raise FileNotFoundError(self._error_msg(f"time trigger missing: {f}"))
+        return TimeTrigger(json.loads(f.read_text())["ends_env_steps"])
 
     @staticmethod
     def _opt(cfg, key, env):
@@ -146,6 +157,8 @@ class Model(ModelTemplate):
         if task != self.task:
             self.policy.set_task(task)
             self.task = task
+            if getattr(self, "time_trig", None) is not None:     # multi-task eval: per-task ends
+                self.time_trig = self._load_time_trigger(task)
 
     def _reset_counters(self) -> None:
         self.n_steps = 0
@@ -218,7 +231,7 @@ class Model(ModelTemplate):
 
     def get_action(self):
         if self.policy.memory is not None and self.policy.memory.mode == "stage" and self.stages_done is None \
-                and not self.policy.memory.force_empty and self.trigger != "learned":
+                and not self.policy.memory.force_empty and self.trigger == "oracle":
             raise RuntimeError(self._error_msg("stage-memory run but no obs['oracle']: "
                                                "evaluate with scripts/step24_eval_with_oracle.sh"))
         self.oracle_trace.append(self.stages_done)

@@ -28,6 +28,8 @@ PATH_KEYS = (
     "experiment.output_root",
     "dataset.stage_memory.boundaries",
     "dataset.stage_memory.cls_dir",
+    "dataset.stage_memory.library_dir",
+    "dataset.stage_memory.cls_root",
     "dataset.subtask.library_dir",
     "dataset.subtask.cls_root",
 )
