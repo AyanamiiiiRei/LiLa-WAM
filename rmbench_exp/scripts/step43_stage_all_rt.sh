@@ -37,7 +37,7 @@ last_step() { sed -E 's/step_0*([0-9]+)\.pt/\1/' "runs/$1/checkpoints/latest.txt
 
 say "start: ${RUN} (${CFG}, init ${INIT})"
 for f in runs/stage_all*.pid; do          # one GPU: wait for an earlier chain that is still running
-    [[ -f "${f}" && "${f}" != "${PIDF}" ]] || continue
+    [[ -f "${f}" && "${SUB}/${f}" != "${PIDF}" ]] || continue     # skip this chain's own pid file
     p="$(cat "${f}")"
     while kill -0 "${p}" 2>/dev/null; do say "waiting for ${f} (PID ${p})"; sleep 600; done
 done
