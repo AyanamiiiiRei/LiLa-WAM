@@ -12,7 +12,7 @@ A rule is usable for a task if, on (nearly) every demo,
   in place  event k lies inside the sub-task it should end, [start - 16, end + 16]
 Reported per task: demos, sub-tasks per demo, events per demo, count ok, in place, median and
 5-95 % offset (event - annotated end, env steps; negative = earlier), max events per demo
-(must fit model.stage_memory.num_slots). press_button: presses per sub-task instead.
+(slots needed = events before the last sub-task; must fit model.stage_memory.num_slots). press_button: presses per sub-task instead.
 Output: printed + artifacts/stage_memory/state_segments_check.md
 """
 
@@ -59,6 +59,9 @@ def main():
         a = acc[r.task]
         a["nsub"].append(len(rows))
         a["nev"].append(len(ev))
+        # slots needed: events before the last sub-task (an event that ends the last sub-task ends
+        # the task, so it is never needed; the segmenter caps the writes at num_slots anyway)
+        a["need"].append(sum(e < rows[-1][1] for e in ev) if r.task != "press_button" else len(ev))
         exp = expected(r.task, rows)
         if exp is None:                                  # press_button: presses per sub-task
             a["per_sub"].append(tuple(sum(st <= e <= en + SLACK for e in ev) for _, st, en in rows))
@@ -71,7 +74,7 @@ def main():
         ref = [rows[0][2]] if r.task == "observe_and_pickup" else [en for _, en in exp]
         a["off"] += [e - ref[k] for k, e in enumerate(ev) if k < len(ref)]
     lines = [f"rules: {TASK_RULE}", f"slack +-{SLACK} steps, num_slots {n_slots}", "",
-             "| task | rule | demos | sub-tasks / demo | events / demo | count ok | in place | offset median [5%, 95%] | max events |",
+             "| task | rule | demos | sub-tasks / demo | events / demo | count ok | in place | offset median [5%, 95%] | max slots needed |",
              "|---|---|---|---|---|---|---|---|---|"]
     ok_all = True
     for task in sorted(acc):
@@ -79,7 +82,7 @@ def main():
         n = len(a["nsub"])
         sub = dict(sorted(Counter(a["nsub"]).items()))
         evd = dict(sorted(Counter(a["nev"]).items()))
-        mx = max(a["nev"])
+        mx = max(a["need"])
         if task == "press_button":
             per = Counter(a["per_sub"]).most_common(6)
             lines.append(f"| {task} | {TASK_RULE[task]} | {n} | {sub} | {evd} | – | presses outside left/middle: "
