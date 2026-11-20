@@ -341,3 +341,10 @@ oracle 在所有组中照常运行并逐块记录，用于比较写入时刻，�
 - 评测触发：计时器，每任务各阶段在训练演示中的平均结束时刻（`time_trigger_10task.json`，至少一半演示有的阶段才保留）。battery_try、blocks_ranking_try 的阶段数会变，press_button 的时长随按压次数变化，计时器在这三个任务上必然写错。
 - 没有对照组：与基线的差别也包含多训练 8,000 步的影响。
 - 运行：`bash scripts/step42_stage_all.sh`（数据检查 → 训练约 2 小时 → 10 任务评测约 16 小时 → `runs/stage_all_summary.md`）。
+
+### 全部任务，从 RoboTwin checkpoint 出发（2026-11-20 起，`configs/stage_memory/M_all_rt.yaml`）
+
+动机：M_all 从基线热启动后，swap_blocks 只有 7/50（第 1 期 26/50）。推测基线已用当前画面拟合了训练演示，新加的记忆没有训练信号；第 1 期从 RoboTwin 出发，记忆与画面是一起学的。
+- 与 M_all 相同的记忆、阶段、槽数与计时器触发；训练改为第一轮设置：85,928 步，batch 64，2e-4 → 5e-5（每任务约 17 遍，接近第 1 期 swap_blocks 的约 18 遍），从 `checkpoints_vla/9task_visual/checkpoint_epoch_8.pt` 出发。
+- 没有对照组：与基线（从头训练、无记忆）的差别也包含 RoboTwin 起点的影响。
+- 运行：`bash scripts/step43_stage_all_rt.sh`（若 step42 的评测仍在运行，会先等待；训练约 19 小时 + 评测约 16 小时）。

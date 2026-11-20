@@ -1,0 +1,18 @@
+# Stage memory on all 10 tasks, warm-started from the RoboTwin checkpoint (like phase 1), so
+# that the memory and the current-image shortcut are learned together on RMBench (in M_all
+# the baseline had already fitted the training demos from the images before the memory existed).
+# Same memory, stages, slots and time trigger as M_all.yaml; training = the round-1 recipe
+# (base.yaml: 85,928 steps, batch 64, 2e-4 -> 5e-5, ~17.4 passes; phase 1 M: ~18 passes over
+# swap_blocks). Init: --init_from checkpoints_vla/9task_visual/checkpoint_epoch_8.pt
+# (scripts/step42_stage_all.sh with STAGE_CFG=configs/stage_memory/M_all_rt.yaml).
+# No control run: compared with baseline-seed0 (trained from scratch, no memory), the
+# difference also contains the effect of the RoboTwin starting point.
+_base_: M_all.yaml
+experiment:
+  name: sm_Mall_rt
+  seed: 0
+training:
+  learning_rate: 2.0e-4
+  lr_min: 5.0e-5
+  total_steps: 85928
+  save_every_steps: 10000
