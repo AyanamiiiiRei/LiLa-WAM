@@ -28,7 +28,8 @@ import _common
 import numpy as np
 
 from rmbench_lila.data.dataset import RMBenchDataset
-from rmbench_lila.episodes import select_episodes
+from rmbench_lila.data.stage_features import StageMemoryFeature
+from rmbench_lila.episodes import EpisodeReader, select_episodes
 from rmbench_lila.stages import GRID
 from rmbench_lila.subtask import Library
 
@@ -75,6 +76,9 @@ def main():
 
     print("\ndata check (stage_memory feature, training split)")
     ds = RMBenchDataset(cfg, "train", episodes=train)
+    feat = StageMemoryFeature(cfg, train=False)
+    n_ends = defaultdict(list)
+    print(f"segmentation: {feat.segmentation}")
     rng = random.Random(0)
     per_task = defaultdict(list)
     for i, (e, _) in enumerate(ds.index):
@@ -87,8 +91,11 @@ def main():
             ref = ds.episodes[e]
             item = ds[i]
             w = item["stage_mem_written"].numpy()
-            _, ends = lib.episode(task, Path(ref.path).stem, int(ds.lengths[e]))
+            with EpisodeReader(ref.path) as rd:      # boundaries exactly as the feature makes them
+                stages = feat._stages(ref, int(ds.lengths[e]), rd)        # (annotation or state)
+            ends = [b for _, b in stages[:-1]]
             finished = sum(t >= g for g in ends[:n_slots])
+            n_ends[task].append(len(ends))
             # jitter moves an end by +-1 chunk: allow a difference of one slot
             if w.sum() > finished + 1 or w.sum() < finished - 1 or (w.sum() and not w[: w.sum()].all()):
                 print(f"ERROR {task} {Path(ref.path).name} t={t}: written {w.astype(int).tolist()}, finished {finished}")
@@ -97,7 +104,8 @@ def main():
                 print(f"ERROR {task}: stage_mem_cls shape {tuple(item['stage_mem_cls'].shape)}")
                 ok = False
             written[int(w.sum())] += 1
-        print(f"  {task}: written slots over {len(idx)} samples {dict(sorted(written.items()))}")
+        print(f"  {task}: written slots over {len(idx)} samples {dict(sorted(written.items()))}; "
+              f"boundaries per sampled demo {dict(sorted(Counter(n_ends[task]).items()))}")
     print("OK" if ok else "PROBLEMS FOUND")
     sys.exit(0 if ok else 1)
 

@@ -95,7 +95,7 @@ class Model(ModelTemplate):
         from rmbench_lila.triggers import TRIGGERS, ProprioTrigger, SwitchHead, TimeTrigger
         if self.trigger not in TRIGGERS:
             raise ValueError(self._error_msg(f"stage_trigger must be one of {TRIGGERS}, got {self.trigger!r}"))
-        self.proprio = self.time_trig = self.head = None
+        self.proprio = self.time_trig = self.head = self.stateseg = None
         if self.policy.learned_switch:
             self.trigger = "learned"          # phase 3: the model itself decides when to write
             return
@@ -110,9 +110,17 @@ class Model(ModelTemplate):
             self.proprio = ProprioTrigger(int(self.policy.cfg.model.stage_memory.num_slots))
         elif self.trigger == "time":
             self.time_trig = self._load_time_trigger(task)
+        elif self.trigger == "state":
+            self.stateseg = self._make_state_segmenter(task)
         elif self.trigger == "head":
             path = self._opt(self.cfg, "switch_head", "LILA_SWITCH_HEAD") or str(art / "switch_head.pt")
             self.head = SwitchHead(path)
+
+    def _make_state_segmenter(self, task: str):
+        """Per-task state-segmentation rule (rmbench_lila/state_segments.py): the same rule that
+        gave the training boundaries (dataset.stage_memory.segmentation: state)."""
+        from rmbench_lila.state_segments import StateSegmenter
+        return StateSegmenter(task, max_stages=int(self.policy.cfg.model.stage_memory.num_slots))
 
     def _load_time_trigger(self, task: str):
         """Per-task time trigger (mean stage ends of the training demos). File name from
@@ -159,6 +167,8 @@ class Model(ModelTemplate):
             self.task = task
             if getattr(self, "time_trig", None) is not None:     # multi-task eval: per-task ends
                 self.time_trig = self._load_time_trigger(task)
+            if getattr(self, "stateseg", None) is not None:      # multi-task eval: per-task rule
+                self.stateseg = self._make_state_segmenter(task)
 
     def _reset_counters(self) -> None:
         self.n_steps = 0
@@ -176,6 +186,8 @@ class Model(ModelTemplate):
         self.oracle_trace: list = []       # oracle stages_done at every chunk (all triggers)
         if self.proprio is not None:
             self.proprio.reset()
+        if self.stateseg is not None:
+            self.stateseg.reset()
         if self.head is not None:
             self.head.reset()
         self._reset_counters()
@@ -222,6 +234,8 @@ class Model(ModelTemplate):
             self.stages_done = int(oracle.get("stages_done", 0))
         if self.proprio is not None:
             self.proprio.update(state)       # raw ee16 state, every env step (like the training rule)
+        if self.stateseg is not None:
+            self.stateseg.update(state)      # raw ee16 state, every env step (same rule as training)
         self.policy.observe(state, rgb)
         self._record_frame(rgb, state)
         self.n_steps += 1
@@ -243,6 +257,8 @@ class Model(ModelTemplate):
             chunk = self.policy.predict_chunk(self.gen, stages_done=self.proprio.done)
         elif self.trigger == "time":
             chunk = self.policy.predict_chunk(self.gen, stages_done=self.time_trig.stages_done(self.n_steps - 1))
+        elif self.trigger == "state":
+            chunk = self.policy.predict_chunk(self.gen, stages_done=self.stateseg.done)
         else:
             chunk = self.policy.predict_chunk(self.gen, head=self.head)
         self.n_chunks += 1

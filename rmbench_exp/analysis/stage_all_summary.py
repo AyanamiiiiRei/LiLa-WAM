@@ -1,6 +1,6 @@
 """Stage memory on all tasks (sm_Mall-seed0, time trigger) vs the round-1 baseline.
 
-  python analysis/stage_all_summary.py [runs_dir] [run=sm_Mall-seed0]
+  python analysis/stage_all_summary.py [runs_dir] [run=sm_Mall-seed0] [eval tag=M-time]
 
 Per task: successes (same eval seeds -> paired), McNemar exact p, mean memory writes per
 episode and how many episodes wrote at least one slot. No control run: the difference also
@@ -13,6 +13,7 @@ from pathlib import Path
 
 R = Path(sys.argv[1] if len(sys.argv) > 1 else "runs")
 RUN = sys.argv[2] if len(sys.argv) > 2 else "sm_Mall-seed0"
+TAG = sys.argv[3] if len(sys.argv) > 3 else "M-time"
 TASKS = ["observe_and_pickup", "put_back_block", "swap_T", "rearrange_blocks", "press_button", "swap_blocks",
          "battery_try", "cover_blocks", "place_block_mat", "blocks_ranking_try"]
 
@@ -41,7 +42,7 @@ def mcnemar(X, Y, keys):
 
 
 B, bdir = load("baseline-seed0", "")
-M, mdir = load(RUN, "_M-time")
+M, mdir = load(RUN, "_" + TAG)
 if B is None or M is None:
     raise SystemExit(f"missing results: baseline {bdir}, stage memory {mdir}")
 print(f"baseline: {bdir}\nstage memory (time trigger): {mdir}\n")

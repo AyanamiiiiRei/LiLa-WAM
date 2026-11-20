@@ -1,26 +1,24 @@
 #!/usr/bin/env python
-"""Can a rule on the robot state alone (computable online from the ee16 proprio) reproduce the
-annotated sub-task boundaries of every task? CPU only, a few minutes, no model.
+"""Check the per-task state-segmentation rules (rmbench_lila/state_segments.py) on ALL training
+demos against the annotated sub-tasks. CPU only, a few minutes, no model.
 
   python scripts/step44_state_segments.py --config configs/stage_memory/M_all.yaml
 
-Question: if stages are segmented by state (instead of the timer), the same rule must give the
-training boundaries and the online writes. Before training on it, check per task how well each
-candidate rule matches the annotated boundaries (artifacts/subtasks) on the training demos.
-
-Rules (ee16: left xyz 0:3, left gripper 7, right xyz 8:11, right gripper 15; gripper 1 = open):
-  release       a gripper opens after having been closed for >= MIN_CLOSED steps
-  release_home  as release, and the stage ends only when both arms are back within HOME_TOL of
-                their start position (the phase-2 proprio rule of swap_blocks, generalised)
-Per task: demos, annotated boundaries per demo (median), events per demo (median), recall =
-boundaries with an event within +-TOL steps, precision = events within +-TOL of a boundary,
-same count = demos where #events == #boundaries, median |offset| of the matched events.
-Output: printed table + artifacts/stage_memory/state_segments_check.md
+A rule is usable for a task if, on (nearly) every demo,
+  count     the number of events equals the number of stages the rule should end
+            (default: one per sub-task, the last one optional because it ends the task;
+             swap_T: "pick" and "move home" merge -> one fewer; press_button: one per press;
+             observe_and_pickup: exactly one, "wait" ends when the arm starts to move)
+  in place  event k lies inside the sub-task it should end, [start - 16, end + 16]
+Reported per task: demos, sub-tasks per demo, events per demo, count ok, in place, median and
+5-95 % offset (event - annotated end, env steps; negative = earlier), max events per demo
+(must fit model.stage_memory.num_slots). press_button: presses per sub-task instead.
+Output: printed + artifacts/stage_memory/state_segments_check.md
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import _common
@@ -28,92 +26,75 @@ import numpy as np
 
 from rmbench_lila.episodes import EpisodeReader, select_episodes
 from rmbench_lila.schema import STATE_GROUP, get_state_layout
+from rmbench_lila.state_segments import TASK_RULE, segment
+from rmbench_lila.subtask import Library
 
-MIN_CLOSED = 4
-HOME_TOL = 0.02
-TOL = 16
-GRIP_OPEN = 0.5
-
-
-def release_events(s):
-    ev = []
-    for g in (7, 15):
-        closed = s[:, g] <= GRIP_OPEN
-        run = 0
-        for t in range(len(s)):
-            if closed[t]:
-                run += 1
-            else:
-                if run >= MIN_CLOSED:
-                    ev.append(t)
-                run = 0
-    return sorted(ev)
+SLACK = 16
 
 
-def release_home_events(s):
-    home_l, home_r = s[0, 0:3], s[0, 8:11]
-    ev, armed, run = [], False, [0, 0]
-    for t in range(len(s)):
-        for i, g in enumerate((7, 15)):
-            if s[t, g] <= GRIP_OPEN:
-                run[i] += 1
-                if run[i] >= MIN_CLOSED:
-                    armed = True
-            else:
-                run[i] = 0
-        if armed and s[t, 7] > GRIP_OPEN and s[t, 15] > GRIP_OPEN and \
-                np.linalg.norm(s[t, 0:3] - home_l) < HOME_TOL and np.linalg.norm(s[t, 8:11] - home_r) < HOME_TOL:
-            ev.append(t)
-            armed = False
-    return ev
-
-
-def match(bounds, events):
-    hit = sum(any(abs(e - b) <= TOL for e in events) for b in bounds)
-    good = sum(any(abs(e - b) <= TOL for b in bounds) for e in events)
-    offs = [min(abs(e - b) for e in events) for b in bounds if events and min(abs(e - b) for e in events) <= TOL]
-    return hit, good, offs
+def expected(task, rows):
+    """-> list of (start, end) of the sub-tasks the events should end, in order; None = per press."""
+    if task == "press_button":
+        return None
+    if task == "swap_T":
+        rows = rows[1:]
+    if task == "observe_and_pickup":
+        return [(rows[0][2], rows[1][2])]          # the arm starts after "wait" ends (offset vs its end)
+    return [(r[1], r[2]) for r in rows]
 
 
 def main():
     p = _common.parser(__doc__)
     args = p.parse_args()
     cfg = _common.load(args)
-    from rmbench_lila.subtask import Library
     lib = Library(cfg.dataset.stage_memory.library_dir)
     layout = get_state_layout(cfg.rmbench.state_layout)
-    refs = select_episodes(cfg, "train")
-    rules = {"release": release_events, "release_home": release_home_events}
+    n_slots = int(cfg.model.stage_memory.num_slots)
     acc = defaultdict(lambda: defaultdict(list))
-    for r in refs:
+    for r in select_episodes(cfg, "train"):
         with EpisodeReader(r.path) as rd:
             s = rd.read_vector(layout, STATE_GROUP)
         rows = lib.segments[r.task][Path(r.path).stem]
-        bounds = [row[2] for row in rows[:-1]]            # raw annotated ends, last sub-task excluded
+        ev = segment(s, r.task)
         a = acc[r.task]
-        a["nb"].append(len(bounds))
-        for name, fn in rules.items():
-            ev = fn(s)
-            hit, good, offs = match(bounds, ev)
-            a[name + "_ne"].append(len(ev))
-            a[name + "_hit"].append(hit)
-            a[name + "_good"].append(good)
-            a[name + "_same"].append(len(ev) == len(bounds))
-            a[name + "_off"] += offs
-    lines = [f"tolerance +-{TOL} steps, gripper closed >= {MIN_CLOSED} steps, home tolerance {HOME_TOL} m", "",
-             "| task | demos | boundaries / demo | rule | events / demo | recall | precision | same count | median offset |",
+        a["nsub"].append(len(rows))
+        a["nev"].append(len(ev))
+        exp = expected(r.task, rows)
+        if exp is None:                                  # press_button: presses per sub-task
+            a["per_sub"].append(tuple(sum(st <= e <= en + SLACK for e in ev) for _, st, en in rows))
+            a["outside"].append(sum(not any(st <= e <= en + SLACK for _, st, en in rows[:-1]) for e in ev))
+            continue
+        ok_count = len(ev) in (len(exp), len(exp) - 1) if r.task != "observe_and_pickup" else len(ev) == 1
+        a["count_ok"].append(ok_count)
+        inplace = all(k < len(exp) and exp[k][0] - SLACK <= e <= exp[k][1] + SLACK for k, e in enumerate(ev))
+        a["in_place"].append(inplace and ok_count)
+        ref = [rows[0][2]] if r.task == "observe_and_pickup" else [en for _, en in exp]
+        a["off"] += [e - ref[k] for k, e in enumerate(ev) if k < len(ref)]
+    lines = [f"rules: {TASK_RULE}", f"slack +-{SLACK} steps, num_slots {n_slots}", "",
+             "| task | rule | demos | sub-tasks / demo | events / demo | count ok | in place | offset median [5%, 95%] | max events |",
              "|---|---|---|---|---|---|---|---|---|"]
+    ok_all = True
     for task in sorted(acc):
         a = acc[task]
-        nb = sum(a["nb"])
-        for name in rules:
-            ne = sum(a[name + "_ne"])
-            rec = sum(a[name + "_hit"]) / max(nb, 1)
-            prec = sum(a[name + "_good"]) / max(ne, 1)
-            same = sum(a[name + "_same"])
-            off = np.median(a[name + "_off"]) if a[name + "_off"] else float("nan")
-            lines.append(f"| {task} | {len(a['nb'])} | {np.median(a['nb']):.0f} | {name} | {np.median(a[name + '_ne']):.0f} | "
-                         f"{rec:.2f} | {prec:.2f} | {same}/{len(a['nb'])} | {off:.0f} |")
+        n = len(a["nsub"])
+        sub = dict(sorted(Counter(a["nsub"]).items()))
+        evd = dict(sorted(Counter(a["nev"]).items()))
+        mx = max(a["nev"])
+        if task == "press_button":
+            per = Counter(a["per_sub"]).most_common(6)
+            lines.append(f"| {task} | {TASK_RULE[task]} | {n} | {sub} | {evd} | – | presses outside left/middle: "
+                         f"{sum(a['outside'])} | presses per (left, middle, confirm): {per} | {mx} |")
+            ok = sum(a["outside"]) == 0 and mx <= n_slots
+        else:
+            off = np.array(a["off"]) if a["off"] else np.zeros(1)
+            lines.append(f"| {task} | {TASK_RULE[task]} | {n} | {sub} | {evd} | {sum(a['count_ok'])}/{n} | "
+                         f"{sum(a['in_place'])}/{n} | {np.median(off):+.0f} [{np.percentile(off, 5):+.0f}, "
+                         f"{np.percentile(off, 95):+.0f}] | {mx} |")
+            ok = sum(a["in_place"]) >= 0.9 * n and mx <= n_slots
+        ok_all &= ok
+        if not ok:
+            lines.append(f"|   ^ {task}: NOT usable as is |||||||||")
+    lines += ["", "ALL USABLE" if ok_all else "SOME TASKS NOT USABLE (see ^ lines)"]
     text = "\n".join(lines)
     print(text)
     out = Path("artifacts/stage_memory/state_segments_check.md")

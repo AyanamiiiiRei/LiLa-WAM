@@ -4,7 +4,9 @@
 # trigger. Unattended, in the background (LiLaWAM env, RMBENCH_DATA set).
 #
 #   bash scripts/step43_stage_all_rt.sh [test_num=50] [eval_seed=0]
-#   (STAGE_CFG / STAGE_INIT override the config / initial weights)
+#   (STAGE_CFG / STAGE_INIT override the config / initial weights; STAGE_TRIGGER = time | state)
+#   State segmentation (training boundaries and online writes from the robot state):
+#   STAGE_CFG=configs/stage_memory/M_all_rt_state.yaml STAGE_TRIGGER=state bash scripts/step43_stage_all_rt.sh
 #
 # A separate copy of step42 so that the step-42 chain that is still running is not edited
 # under it (bash reads a running script from disk). If any chain (runs/stage_all*.pid) is still
@@ -17,6 +19,7 @@ SUB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 N="${1:-50}"; SEED="${2:-0}"
 cd "${SUB}"
 CFG="${STAGE_CFG:-configs/stage_memory/M_all_rt.yaml}"
+TRIG="${STAGE_TRIGGER:-time}"
 INIT="${STAGE_INIT:-/home/aki/lilawam/LiLa-WAM/checkpoints_vla/9task_visual/checkpoint_epoch_8.pt}"
 RUN="$(python -c "from rmbench_lila.config import load_config; c=load_config('${CFG}', []); print(f'{c.experiment.name}-seed{c.experiment.seed}')")" \
     || { echo "cannot read ${CFG}"; exit 1; }
@@ -26,7 +29,7 @@ PIDF="${SUB}/runs/stage_all_${RUN}.pid"
 [[ -f "${INIT}" ]] || { echo "initial checkpoint missing: ${INIT}"; exit 1; }
 
 if [[ "${_STAGE_ALL_CHILD:-}" != "1" ]]; then
-    _STAGE_ALL_CHILD=1 STAGE_CFG="${CFG}" STAGE_INIT="${INIT}" nohup bash "$0" "$@" >> "${LOG}" 2>&1 &
+    _STAGE_ALL_CHILD=1 STAGE_CFG="${CFG}" STAGE_INIT="${INIT}" STAGE_TRIGGER="${TRIG}" nohup bash "$0" "$@" >> "${LOG}" 2>&1 &
     echo $! > "${PIDF}"
     echo "started in the background (PID $(cat "${PIDF}")); run ${RUN}; progress: tail -n 30 ${LOG}"
     exit 0
@@ -43,6 +46,10 @@ for f in runs/stage_all*.pid; do          # one GPU: wait for an earlier chain t
 done
 say "0. time triggers + data check"
 python -u scripts/step42_time_triggers.py --config "${CFG}" || { say "data check FAILED, stopping"; exit 1; }
+if [[ "${TRIG}" == "state" ]]; then
+    python -u scripts/step44_state_segments.py --config "${CFG}" | tee "runs/state_segments_${RUN}.md"
+    grep -q "ALL USABLE" "runs/state_segments_${RUN}.md" || { say "state segmentation check FAILED, stopping"; exit 1; }
+fi
 
 TOT="$(python -c "from rmbench_lila.config import load_config; print(load_config('${CFG}', []).training.total_steps)")"
 if [[ "$(last_step "${RUN}")" == "${TOT}" ]]; then
@@ -57,10 +64,10 @@ else
     [[ "$(last_step "${RUN}")" == "${TOT}" ]] || { say "training did not finish (see runs/${RUN}.train.log)"; exit 1; }
 fi
 
-say "2. eval ${RUN}: ${N} episodes x 10 tasks, seed ${SEED}, trigger time"
-LILA_STAGE_TRIGGER=time LILA_EVAL_TAG=M-time LILA_TIME_TRIGGER_FILE=time_trigger_10task.json \
+say "2. eval ${RUN}: ${N} episodes x 10 tasks, seed ${SEED}, trigger ${TRIG}"
+LILA_STAGE_TRIGGER="${TRIG}" LILA_EVAL_TAG="M-${TRIG}" LILA_TIME_TRIGGER_FILE=time_trigger_10task.json \
     _EVAL_ALL_CHILD=1 bash scripts/step09_eval_all.sh "${RUN}" "${N}" "${SEED}" || say "eval FAILED"
 
 say "3. summary"
-python analysis/stage_all_summary.py runs "${RUN}" 2>&1 | tee "runs/stage_all_summary_${RUN}.md"
+python analysis/stage_all_summary.py runs "${RUN}" "M-${TRIG}" 2>&1 | tee "runs/stage_all_summary_${RUN}.md"
 say "all done"

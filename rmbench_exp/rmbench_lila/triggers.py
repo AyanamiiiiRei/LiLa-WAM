@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-TRIGGERS = ("oracle", "proprio", "head", "time", "learned")
+TRIGGERS = ("oracle", "proprio", "head", "time", "learned", "state")
 
 
 class ProprioTrigger:

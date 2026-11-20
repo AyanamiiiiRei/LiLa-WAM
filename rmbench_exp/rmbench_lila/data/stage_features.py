@@ -38,6 +38,14 @@ class StageMemoryFeature(Feature):
         self.mode = str(sm.get("mode", "stage"))
         self.n = int(sm.num_slots)
         self.library = None
+        # "annotation" (default): stage ends = annotated sub-task ends; "state": stage ends =
+        # rmbench_lila/state_segments.py events on the demo's own ee16 state (the same rule
+        # triggers the writes online, LILA_STAGE_TRIGGER=state)
+        self.segmentation = str(dsm.get("segmentation", "annotation"))
+        self._states: dict[str, np.ndarray] = {}
+        if self.segmentation == "state":
+            from ..schema import get_state_layout
+            self._layout = get_state_layout("ee16")
         if dsm.get("library_dir"):
             # all tasks: the stages of a demo are its annotated sub-tasks (same grid ends the
             # sub-task design uses), keyed by (task, file)
@@ -64,11 +72,29 @@ class StageMemoryFeature(Feature):
             a = self._cls[path] = np.load(f).astype(np.float32)
         return a
 
-    def _stages(self, ref, length: int) -> list[list[int]]:
+    def _state_ends(self, ref, reader, last_grid: int) -> list[int]:
+        from ..schema import STATE_GROUP
+        from ..state_segments import segment
+        st = self._states.get(ref.path)
+        if st is None:
+            st = self._states[ref.path] = reader.read_vector(self._layout, STATE_GROUP)
+        ends, prev = [], 0
+        for e in segment(st, ref.task, max_stages=self.n):
+            g = max(-(-e // GRID) * GRID, prev + GRID)    # first chunk start at/after the event (as online)
+            if g > last_grid:
+                break
+            ends.append(g)
+            prev = g
+        return ends
+
+    def _stages(self, ref, length: int, reader=None) -> list[list[int]]:
         if self.library is None:
             return self.boundaries[Path(ref.path).name]
-        _, ends = self.library.episode(ref.task, Path(ref.path).stem, length)
         last_grid = ((length - 1) // GRID) * GRID
+        if self.segmentation == "state":
+            ends = self._state_ends(ref, reader, last_grid)
+        else:
+            _, ends = self.library.episode(ref.task, Path(ref.path).stem, length)
         starts = [0] + list(ends)
         return [[a, b] for a, b in zip(starts, list(ends) + [max(last_grid, starts[-1])])]
 
@@ -81,9 +107,9 @@ class StageMemoryFeature(Feature):
         if self.mode == "first_frame":
             out[0, 0] = out[0, 1] = cls[0]
             written = np.ones(1, bool)
-            sid = stage_index(t, self._stages(ctx.ref, ctx.length))
+            sid = stage_index(t, self._stages(ctx.ref, ctx.length, ctx.reader))
         else:
-            stages = self._stages(ctx.ref, ctx.length)
+            stages = self._stages(ctx.ref, ctx.length, ctx.reader)
             # library: the last sub-task ends the task and is never written as a slot
             written_stages = stages[:-1] if self.library is not None else stages
             ends = jitter_ends(written_stages, self.n, ctx.length, self.jitter_p, rng=random)

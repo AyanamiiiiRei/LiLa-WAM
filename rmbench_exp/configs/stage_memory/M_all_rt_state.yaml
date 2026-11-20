@@ -1,0 +1,13 @@
+# As M_all_rt.yaml (all 10 tasks, from the RoboTwin checkpoint, 85,928 steps), but the stages
+# are segmented by the ROBOT STATE (rmbench_lila/state_segments.py, per-task rules checked by
+# scripts/step44_state_segments.py): the same rule gives the training boundaries and the online
+# writes (LILA_STAGE_TRIGGER=state). Annotated sub-tasks are only used to check the rules.
+# Run: bash scripts/step43_stage_all_rt.sh with STAGE_CFG=configs/stage_memory/M_all_rt_state.yaml
+#      STAGE_TRIGGER=state. No control run (see M_all_rt.yaml).
+_base_: M_all_rt.yaml
+experiment:
+  name: sm_Mall_rt_state
+  seed: 0
+dataset:
+  stage_memory:
+    segmentation: state
